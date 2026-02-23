@@ -25,6 +25,8 @@ import {Scene_To_Texture_Demo}
                     from "./examples/scene-to-texture-demo.js";
 import {Text_Demo}
                     from "./examples/text-demo.js";
+import {Bullseye_Range}
+                    from "./examples/bullseye/bullseye-range.js";
 import {Transforms_Sandbox_Base, Transforms_Sandbox}
                     from "./examples/transforms-sandbox.js";
 
@@ -38,12 +40,13 @@ Object.assign (defs,
                {Parametric_Surfaces},
                {Scene_To_Texture_Demo},
                {Text_Demo},
+               {Bullseye_Range},
                {Transforms_Sandbox_Base, Transforms_Sandbox}
 );
 
 // ******************** SELECT THE DEMO TO DISPLAY:
 
-const main_scene        = Parametric_Surfaces;
+const main_scene        = Bullseye_Range;
 const additional_scenes = [];
 
 export {main_scene, additional_scenes, defs};
