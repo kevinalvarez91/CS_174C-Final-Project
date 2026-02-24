@@ -227,6 +227,7 @@ class Arrow {
 ========================= */
 export class Bullseye_Range extends Component {
   init() {
+    console.log("FORCE UPDATING"); 
     this.widget_options = { make_controls: true };
 
     this.shapes = {
@@ -237,6 +238,7 @@ export class Bullseye_Range extends Component {
       arrow_head: new Subdivision_Sphere(3),
       bow_arc: new Torus(15, 15),
       dot: new Subdivision_Sphere(2),
+      sphere: new Subdivision_Sphere(4), 
     };
 
     const phong = new Phong_Shader(1);
@@ -251,9 +253,52 @@ export class Bullseye_Range extends Component {
       arrow:        { shader: phong, color: color(0.8, 0.8, 0.8, 1), ambient: 0.5, diffusivity: 0.8 },
       particles:    { shader: phong, color: color(1, 1, 1, 0.7), ambient: 1.0, diffusivity: 0.0 },
       dot:          { shader: phong, color: color(1, 0, 0, 0.6), ambient: 1.0, diffusivity: 0.0 },
+      sky:    { shader: phong, color: color(0.4, 0.7, 0.9, 1), ambient: 1.0, diffusivity: 0.0 }, // 1.0 ambient so it doesn't get dark
+      leaves: { shader: phong, color: color(0.1, 0.4, 0.15, 1), ambient: 0.4, diffusivity: 0.8 },
+      hill:   { shader: phong, color: color(0.2, 0.35, 0.15, 1), ambient: 0.3, diffusivity: 0.9 },
     };
 
     this.reset_game();
+
+    // --- NEW: HTML/CSS Scoreboard Overlay ---
+    this.scoreboard_el = document.createElement('div');
+    
+    // Style it to look like a digital display
+    Object.assign(this.scoreboard_el.style, {
+      position: 'absolute',
+      top: '20px',
+      left: '50%',
+      transform: 'translateX(-50%)',         // Centers the div
+      backgroundColor: 'rgba(5, 15, 5, 0.85)', // Dark greenish-black background
+      border: '3px solid #0f0',              // Bright green border
+      color: '#0f0',                         // Bright green text
+      fontFamily: '"Courier New", Courier, monospace', // Digital/retro font
+      padding: '15px 30px',
+      fontSize: '24px',
+      fontWeight: 'bold',
+      borderRadius: '10px',
+      boxShadow: '0 0 15px rgba(0, 255, 0, 0.5)', // Outer glow
+      textShadow: '0 0 8px #0f0',            // Text glow
+      pointerEvents: 'none',                 // Lets mouse clicks pass through to the game
+      zIndex: '1000',                        // Keeps it on top of the canvas
+      textAlign: 'center',
+      whiteSpace: 'pre'                      // Keeps our exact spacing
+    });
+
+    document.body.appendChild(this.scoreboard_el);
+
+    const style = document.createElement('style');
+    style.innerHTML = `
+      @keyframes bullseye-flash {
+        0% { transform: translateX(-50%) scale(1); background-color: rgba(5, 15, 5, 0.85); box-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
+        50% { transform: translateX(-50%) scale(1.15); background-color: rgba(60, 50, 0, 0.95); box-shadow: 0 0 50px rgba(255, 255, 0, 1); border-color: #ff0; text-shadow: 0 0 15px #ff0; }
+        100% { transform: translateX(-50%) scale(1); background-color: rgba(5, 15, 5, 0.85); box-shadow: 0 0 15px rgba(0, 255, 0, 0.5); }
+      }
+      .flash-active {
+        animation: bullseye-flash 0.5s ease-out;
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   reset_game() {
@@ -310,6 +355,55 @@ export class Bullseye_Range extends Component {
       if (frac <= band.frac) return band.points;
     }
     return 0;
+  }
+
+  trigger_scoreboard_flash() {
+    if (!this.scoreboard_el) return;
+    
+    // Remove the class, trigger a layout reflow, and add it back to restart the animation
+    this.scoreboard_el.classList.remove('flash-active');
+    void this.scoreboard_el.offsetWidth; // Magic browser trick to reset CSS animations
+    this.scoreboard_el.classList.add('flash-active');
+  }
+
+  draw_scenery(caller) {
+    // 1. Skybox (A massive sphere wrapped around the scene)
+    const sky_transform = Mat4.scale(150, 150, 150);
+    this.shapes.sphere.draw(caller, this.uniforms, sky_transform, this.materials.sky);
+
+    // 2. Expanded Ground (Scale it up so we don't see the edges easily)
+    const ground_transform = Mat4.translation(0, 0, -40)
+      .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(150, 150, 1));
+    this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
+
+    // 3. Distant Rolling Hills (Stretched spheres)
+    const hill_positions = [
+      vec3(-40, -5, -100), vec3(40, -8, -110), vec3(0, -10, -120)
+    ];
+    for (const pos of hill_positions) {
+      const hill_transform = Mat4.translation(...pos)
+        .times(Mat4.scale(40, 20, 20)); // Stretch them wide and tall
+      this.shapes.sphere.draw(caller, this.uniforms, hill_transform, this.materials.hill);
+    }
+
+    // 4. Trees lining the sides
+    const tree_z_positions = [-20, -40, -60, -80];
+    for (const z of tree_z_positions) {
+      // Draw a tree on the left and right for each Z depth
+      for (const x of [-25, 25]) {
+        // Trunk
+        const trunk_transform = Mat4.translation(x, 2, z)
+          .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
+          .times(Mat4.scale(1, 1, 4));
+        this.shapes.post.draw(caller, this.uniforms, trunk_transform, this.materials.wood);
+
+        // Leaves
+        const leaves_transform = Mat4.translation(x, 6, z)
+          .times(Mat4.scale(4, 5, 4)); // Slightly oval leaves
+        this.shapes.sphere.draw(caller, this.uniforms, leaves_transform, this.materials.leaves);
+      }
+    }
   }
 
   // Stable orientation basis from direction vector
@@ -424,6 +518,10 @@ export class Bullseye_Range extends Component {
 
           this.score += points;
           this.streak = points >= 8 ? this.streak + 1 : 0;
+
+          if (points >= 6){
+            this.trigger_scoreboard_flash(); 
+          }
 
           a.stuck = true;
           a.vel = vec3(0, 0, 0);
@@ -609,16 +707,30 @@ export class Bullseye_Range extends Component {
       this.update_simulation(dt);
     }
 
-    const ground_transform = Mat4.translation(0, 0, -40)
-      .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
-      .times(Mat4.scale(80, 80, 1));
+    // const ground_transform = Mat4.translation(0, 0, -40)
+    //   .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
+    //   .times(Mat4.scale(80, 80, 1));
 
-    this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
-
+    // this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
+    
+    this.draw_scenery(caller); 
     this.draw_targets(caller);
     this.draw_arrows(caller);
     this.draw_bow_and_arrow(caller);
     this.draw_trajectory(caller);
     this.weather.draw(caller, this.uniforms, this.materials.particles);
+
+    if (this.scoreboard_el) {
+      // .padStart(4, '0') makes the score look like "0010" instead of "10"
+      const paddedScore = this.score.toString().padStart(4, '0');
+      const paddedStreak = this.streak.toString().padStart(2, '0');
+      const weatherTxt = this.weather.type.toUpperCase().padEnd(5, ' ');
+      
+      this.scoreboard_el.innerHTML = 
+        `SCORE: <span style="color:#fff">${paddedScore}</span>  |  ` +
+        `SHOTS: ${this.shots_taken}/${this.max_shots}  |  ` +
+        `STREAK: <span style="color:orange">${paddedStreak}</span>  |  ` +
+        `WEATHER: <span style="color:#0ff">${weatherTxt}</span>`;
+    }
   }
 }
