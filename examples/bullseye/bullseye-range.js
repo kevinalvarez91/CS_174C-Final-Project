@@ -432,39 +432,50 @@ export class Bullseye_Range extends Component {
 
   draw_arrow_mesh(caller, pos, dir) {
     const basis = this.get_basis_from_dir(dir);
-    
-    const shaft_radius = 0.015;
-    const shaft_length = 2.5;
 
-    // 1. Shaft: Starts at 'pos' and extends forward.
-    // We translate by shaft_length/2 because cylinders are centered at the origin.
+    // Slender, realistic arrow proportions
+    const shaft_radius = 0.008;   // much thinner shaft
+    const shaft_length = 2.8;     // slightly longer for elegance
+
+    // 1. Shaft — thin, long, wooden rod
     const shaft_transform = Mat4.translation(...pos)
       .times(basis)
-      .times(Mat4.translation(0, 0, shaft_length / 2)) 
+      .times(Mat4.translation(0, 0, shaft_length / 2))
       .times(Mat4.scale(shaft_radius, shaft_radius, shaft_length / 2));
 
-    // 2. Arrow Head: Placed exactly at the tip of the shaft.
-    const head_length = 0.2;
+    // 2. Arrow Head — narrow, pointed tip (like a bodkin point)
+    const head_length = 0.18;
+    const head_radius = 0.018;   // narrower, more tapered
     const head_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length + head_length / 2))
-      .times(Mat4.scale(0.04, 0.04, head_length / 2));
+      .times(Mat4.scale(head_radius, head_radius, head_length / 2));
 
     this.shapes.arrow_shaft.draw(caller, this.uniforms, shaft_transform, this.materials.wood);
     this.shapes.arrow_head.draw(caller, this.uniforms, head_transform, this.materials.arrow);
 
-    // 3. Fletching (Feathers): Rotated around the shaft and tucked 0.2 units from the back.
+    // 3. Fletching — 3 elegant, flat vanes near the nock end
+    //    Each vane is a thin flat quad, fanned 120° apart around the shaft.
+    const vane_colors = [this.materials.target_red, this.materials.target_white, this.materials.target_white];
     for (let i = 0; i < 3; i++) {
       const angle = i * (2 * Math.PI / 3);
-      const feather_transform = Mat4.translation(...pos)
+      const vane_transform = Mat4.translation(...pos)
         .times(basis)
-        .times(Mat4.rotation(angle, 0, 0, 1))      // Rotate around the Z-axis (shaft)
-        .times(Mat4.translation(0, shaft_radius, 0.3)) // Move to shaft surface and slightly forward
-        .times(Mat4.rotation(-0.2, 1, 0, 0))       // Slant them for better look
-        .times(Mat4.scale(0.005, 0.1, 0.25));      // Thin, tall, and long
+        .times(Mat4.rotation(angle, 0, 0, 1))           // fan around shaft
+        .times(Mat4.translation(0, 0.03, 0.28))          // sit just above shaft surface, near back
+        .times(Mat4.rotation(Math.PI * 0.08, 1, 0, 0))  // gentle helical cant
+        .times(Mat4.scale(0.003, 0.07, 0.22));           // ultra-thin, medium-height, elongated
 
-      this.shapes.ground.draw(caller, this.uniforms, feather_transform, this.materials.target_white);
+      this.shapes.ground.draw(caller, this.uniforms, vane_transform, vane_colors[i]);
     }
+
+    // 4. Nock — tiny dark cylinder at the very back of the shaft
+    const nock_transform = Mat4.translation(...pos)
+      .times(basis)
+      .times(Mat4.translation(0, 0, 0.06))
+      .times(Mat4.scale(0.012, 0.012, 0.06));
+
+    this.shapes.arrow_shaft.draw(caller, this.uniforms, nock_transform, this.materials.target_black);
   }
   /* ---------- Gameplay ---------- */
 
@@ -575,11 +586,13 @@ export class Bullseye_Range extends Component {
       .plus(dir.times(1.5)) 
       .plus(basis.times(vec4(0.4, -0.3, 0, 0)).to3());
 
-    // Draw the Bow
+    // Draw the Bow — slender, tall recurve silhouette
+    // The Torus is ring-shaped; we flatten its tube (x/z) and stretch vertically (y)
+    // to get a thin oval arc that reads as a recurve bow limb.
     const bow_transform = Mat4.translation(...bow_pos)
       .times(basis)
       .times(Mat4.rotation(Math.PI / 2, 0, 1, 0))
-      .times(Mat4.scale(0.2, 0.9, 0.2));
+      .times(Mat4.scale(0.06, 1.1, 0.06));  // very thin tube, tall oval arc
     this.shapes.bow_arc.draw(caller, this.uniforms, bow_transform, this.materials.wood);
 
     // Draw the Nocked Arrow
