@@ -21,6 +21,12 @@ const GAME_CONFIG = {
   dtClamp: 1 / 30,           // prevent huge simulation jumps on lag spikes
 };
 
+const ARROW_SPEED_PRESETS = [
+  60, 
+  60 * 3, 
+  60 * 5
+];
+
 const TARGET_SCORING = [
   { frac: 0.2, points: 10 },
   { frac: 0.4, points: 8 },
@@ -227,7 +233,7 @@ class Arrow {
 ========================= */
 export class Bullseye_Range extends Component {
   init() {
-    console.log("FORCED AGAIN AGAIN"); 
+    console.log("FORCED AGAIN AGAIN!!"); 
     this.widget_options = { make_controls: true };
 
     this.shapes = {
@@ -302,6 +308,7 @@ export class Bullseye_Range extends Component {
   }
 
   reset_game() {
+    this.arrow_speed_index = 0; 
     this.score = 0;
     this.shots_taken = 0;
     this.max_shots = GAME_CONFIG.maxShots;
@@ -347,7 +354,13 @@ export class Bullseye_Range extends Component {
   }
 
   compute_arrow_speed() {
-    return GAME_CONFIG.baseArrowSpeed * (0.2 + 0.8 * this.draw_strength);
+    const base = ARROW_SPEED_PRESETS[this.arrow_speed_index];
+    return base * (0.2 + 0.8 * this.draw_strength);
+  }
+
+  cycle_arrow_speed() {
+    this.arrow_speed_index =
+      (this.arrow_speed_index + 1) % ARROW_SPEED_PRESETS.length;
   }
 
   score_for_radius_fraction(frac) {
@@ -702,12 +715,22 @@ export class Bullseye_Range extends Component {
     this.new_line();
     this.key_triggered_button('Cycle Weather', ['q'], () => this.weather.cycle_type(), 'blue');
     this.key_triggered_button('Reset Game', ['r'], () => this.reset_game(), 'orange');
+    this.key_triggered_button(
+      'Cycle Arrow Speed',
+      ['e'],
+      () => this.cycle_arrow_speed(),
+      'green'
+    );
     this.new_line();
 
+
     this.live_string(box => {
+      const speed = ARROW_SPEED_PRESETS[this.arrow_speed_index]; 
+      
       box.textContent =
         `Score: ${this.score}   Shots: ${this.shots_taken}/${this.max_shots}   ` +
-        `Streak: ${this.streak}   Weather: ${this.weather.type.toUpperCase()}`;
+        `Streak: ${this.streak}   Weather: ${this.weather.type.toUpperCase()} ` +
+        `Speed:  ${speed} `;
     });
   }
 
