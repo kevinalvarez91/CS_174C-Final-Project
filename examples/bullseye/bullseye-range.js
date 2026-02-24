@@ -227,7 +227,7 @@ class Arrow {
 ========================= */
 export class Bullseye_Range extends Component {
   init() {
-    console.log("FORCE UPDATING"); 
+    console.log("FORCED AGAIN AGAIN"); 
     this.widget_options = { make_controls: true };
 
     this.shapes = {
@@ -235,7 +235,7 @@ export class Bullseye_Range extends Component {
       target_face: new Capped_Cylinder(30, 30),
       post: new Capped_Cylinder(4, 12),
       arrow_shaft: new Capped_Cylinder(6, 12),
-      arrow_head: new Subdivision_Sphere(3),
+      arrow_head: new Capped_Cylinder(6, 12),
       bow_arc: new Torus(15, 15),
       dot: new Subdivision_Sphere(2),
       sphere: new Subdivision_Sphere(4), 
@@ -432,19 +432,40 @@ export class Bullseye_Range extends Component {
 
   draw_arrow_mesh(caller, pos, dir) {
     const basis = this.get_basis_from_dir(dir);
+    
+    const shaft_radius = 0.015;
+    const shaft_length = 2.5;
 
+    // 1. Shaft: Starts at 'pos' and extends forward.
+    // We translate by shaft_length/2 because cylinders are centered at the origin.
     const shaft_transform = Mat4.translation(...pos)
       .times(basis)
-      .times(Mat4.scale(0.04, 0.04, 1.8));
+      .times(Mat4.translation(0, 0, shaft_length / 2)) 
+      .times(Mat4.scale(shaft_radius, shaft_radius, shaft_length / 2));
 
-    const head_transform = Mat4.translation(...pos.plus(dir.times(1.8)))
+    // 2. Arrow Head: Placed exactly at the tip of the shaft.
+    const head_length = 0.2;
+    const head_transform = Mat4.translation(...pos)
       .times(basis)
-      .times(Mat4.scale(0.1, 0.1, 0.1));
+      .times(Mat4.translation(0, 0, shaft_length + head_length / 2))
+      .times(Mat4.scale(0.04, 0.04, head_length / 2));
 
-    this.shapes.arrow_shaft.draw(caller, this.uniforms, shaft_transform, this.materials.arrow);
+    this.shapes.arrow_shaft.draw(caller, this.uniforms, shaft_transform, this.materials.wood);
     this.shapes.arrow_head.draw(caller, this.uniforms, head_transform, this.materials.arrow);
-  }
 
+    // 3. Fletching (Feathers): Rotated around the shaft and tucked 0.2 units from the back.
+    for (let i = 0; i < 3; i++) {
+      const angle = i * (2 * Math.PI / 3);
+      const feather_transform = Mat4.translation(...pos)
+        .times(basis)
+        .times(Mat4.rotation(angle, 0, 0, 1))      // Rotate around the Z-axis (shaft)
+        .times(Mat4.translation(0, shaft_radius, 0.3)) // Move to shaft surface and slightly forward
+        .times(Mat4.rotation(-0.2, 1, 0, 0))       // Slant them for better look
+        .times(Mat4.scale(0.005, 0.1, 0.25));      // Thin, tall, and long
+
+      this.shapes.ground.draw(caller, this.uniforms, feather_transform, this.materials.target_white);
+    }
+  }
   /* ---------- Gameplay ---------- */
 
   spawn_arrow() {
@@ -548,25 +569,26 @@ export class Bullseye_Range extends Component {
     const origin = this.get_player_origin();
     const basis = this.get_basis_from_dir(dir);
 
-    // Move bow slightly right/down in FPS view
-    const bow_offset_local = vec4(0.3, -0.2, 0, 0);
+    // Offset the bow to the right and down for a First-Person view
+    // We move it 1.5 units forward so it doesn't clip into the camera
     const bow_pos = origin
-      .plus(dir.times(1.0))
-      .plus(basis.times(bow_offset_local).to3());
+      .plus(dir.times(1.5)) 
+      .plus(basis.times(vec4(0.4, -0.3, 0, 0)).to3());
 
-    const draw_offset = this.draw_strength * 0.8;
-
+    // Draw the Bow
     const bow_transform = Mat4.translation(...bow_pos)
       .times(basis)
       .times(Mat4.rotation(Math.PI / 2, 0, 1, 0))
-      .times(Mat4.scale(0.3, 1.2, 0.3));
-
+      .times(Mat4.scale(0.2, 0.9, 0.2));
     this.shapes.bow_arc.draw(caller, this.uniforms, bow_transform, this.materials.wood);
 
-    // Nocked arrow shown while available or while currently drawing
+    // Draw the Nocked Arrow
     if (this.shots_taken < this.max_shots || this.is_drawing) {
-      const arrow_pos = bow_pos.plus(basis.times(vec4(-0.05, 0, -draw_offset + 0.8, 0)).to3());
-      this.draw_arrow_mesh(caller, arrow_pos, dir);
+      // The nock (back of arrow) starts at the bow and moves backward as you pull
+      const draw_dist = this.draw_strength * 0.9;
+      const nock_pos = bow_pos.minus(dir.times(draw_dist));
+      
+      this.draw_arrow_mesh(caller, nock_pos, dir);
     }
   }
 
@@ -712,7 +734,7 @@ export class Bullseye_Range extends Component {
     //   .times(Mat4.scale(80, 80, 1));
 
     // this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
-    
+
     this.draw_scenery(caller); 
     this.draw_targets(caller);
     this.draw_arrows(caller);
