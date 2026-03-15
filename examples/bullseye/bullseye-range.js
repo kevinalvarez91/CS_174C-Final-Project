@@ -1265,10 +1265,6 @@ export class Bullseye_Range extends Component {
       .times(Mat4.scale(0.045, 0.20, 0.045));
     this.shapes.post.draw(caller, this.uniforms, grip_transform, this.materials.wood);
 
-    // String
-    this.draw_segment(caller, bowTop, nockPos, 0.0045, this.materials.string);
-    this.draw_segment(caller, nockPos, bowBottom, 0.0045, this.materials.string);
-
     // Nocked arrow
     if (this.reload_timer <= 0 && this.shots_taken < this.max_shots) {
       const flipped_dir = vec3(-dir[0], dir[1], dir[2]);
