@@ -294,6 +294,11 @@ export class Bullseye_Range extends Component {
       cloud_dark:     { shader: phong, color: color(0.45, 0.48, 0.52, 0.95), ambient: 0.65, diffusivity: 0.18 },
       cloud_storm:    { shader: phong, color: color(0.28, 0.30, 0.34, 0.98), ambient: 0.45, diffusivity: 0.25 },
       
+      bark:         { shader: phong, color: color(0.28, 0.18, 0.08, 1), ambient: 0.28, diffusivity: 0.92 },
+      leaves_dark:  { shader: phong, color: color(0.06, 0.24, 0.10, 1), ambient: 0.28, diffusivity: 0.90 },
+      leaves_mid:   { shader: phong, color: color(0.10, 0.34, 0.14, 1), ambient: 0.34, diffusivity: 0.88 },
+      leaves_light: { shader: phong, color: color(0.16, 0.42, 0.18, 1), ambient: 0.38, diffusivity: 0.84 },
+
       sleeve:       { shader: phong, color: color(0.10, 0.15, 0.24, 1), ambient: 0.35, diffusivity: 0.9 },
       cuff:         { shader: phong, color: color(0.18, 0.22, 0.32, 1), ambient: 0.35, diffusivity: 0.9 },
       glove:        { shader: phong, color: color(0.12, 0.10, 0.08, 1), ambient: 0.38, diffusivity: 0.88 },
@@ -586,6 +591,52 @@ export class Bullseye_Range extends Component {
     this.shapes.post.draw(caller, this.uniforms, thumb, materialThumb);
   }
 
+  draw_tree(caller, base_pos, trunk_height, canopy_scale = 1.0) {
+    const [x, y, z] = base_pos;
+
+    // trunk
+    const trunk = Mat4.translation(x, y + trunk_height / 2, z)
+      .times(Mat4.scale(0.28 * canopy_scale, trunk_height / 2, 0.28 * canopy_scale));
+    this.shapes.post.draw(caller, this.uniforms, trunk, this.materials.bark);
+
+    // lower foliage layer
+    const foliage1 = Mat4.translation(x, y + trunk_height * 0.95, z)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(1.7 * canopy_scale, 1.7 * canopy_scale, 3.0 * canopy_scale));
+    this.shapes.cone.draw(caller, this.uniforms, foliage1, this.materials.leaves_dark);
+
+    // middle foliage layer
+    const foliage2 = Mat4.translation(x, y + trunk_height * 1.35, z + 0.15)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(1.35 * canopy_scale, 1.35 * canopy_scale, 2.35 * canopy_scale));
+    this.shapes.cone.draw(caller, this.uniforms, foliage2, this.materials.leaves_mid);
+
+    // upper foliage layer
+    const foliage3 = Mat4.translation(x, y + trunk_height * 1.68, z - 0.08)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(0.95 * canopy_scale, 0.95 * canopy_scale, 1.65 * canopy_scale));
+    this.shapes.cone.draw(caller, this.uniforms, foliage3, this.materials.leaves_light);
+
+    // top point
+    const foliage4 = Mat4.translation(x, y + trunk_height * 1.95, z)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(0.50 * canopy_scale, 0.50 * canopy_scale, 0.95 * canopy_scale));
+    this.shapes.cone.draw(caller, this.uniforms, foliage4, this.materials.leaves_mid);
+
+    // irregular side clumps so trees do not look too perfect
+    const clump1 = Mat4.translation(x - 0.45 * canopy_scale, y + trunk_height * 1.18, z + 0.25)
+      .times(Mat4.scale(0.42 * canopy_scale, 0.42 * canopy_scale, 0.42 * canopy_scale));
+    this.shapes.sphere.draw(caller, this.uniforms, clump1, this.materials.leaves_dark);
+
+    const clump2 = Mat4.translation(x + 0.38 * canopy_scale, y + trunk_height * 1.42, z - 0.18)
+      .times(Mat4.scale(0.34 * canopy_scale, 0.34 * canopy_scale, 0.34 * canopy_scale));
+    this.shapes.sphere.draw(caller, this.uniforms, clump2, this.materials.leaves_light);
+
+    const clump3 = Mat4.translation(x - 0.22 * canopy_scale, y + trunk_height * 1.62, z - 0.28)
+      .times(Mat4.scale(0.28 * canopy_scale, 0.28 * canopy_scale, 0.28 * canopy_scale));
+    this.shapes.sphere.draw(caller, this.uniforms, clump3, this.materials.leaves_mid);
+  }
+
   draw_cloud(caller, center, sx, sy, sz, material = this.materials.cloud) {
     const blobs = [
       vec3(-0.9, 0.0, 0.0),
@@ -755,18 +806,32 @@ export class Bullseye_Range extends Component {
     }
 
     // trees
-    const tree_z_positions = [-22, -34, -48, -62, -76, -90];
-    for (const z of tree_z_positions) {
-      for (const x of [-24, -19, 19, 24]) {
-        const trunk_transform = Mat4.translation(x, 2.5, z)
-          .times(Mat4.scale(0.35, 2.5, 0.35));
-        this.shapes.post.draw(caller, this.uniforms, trunk_transform, this.materials.wood);
+    const tree_layout = [
+      { x: -24, z: -22, h: 4.6, s: 1.00 },
+      { x: -19, z: -34, h: 3.0, s: .6 },
+      { x: -24, z: -48, h: 4.3, s: 0.95 },
+      { x: -19, z: -62, h: 5.4, s: 1.12 },
+      { x: -24, z: -76, h: 4.8, s: 1.02 },
+      { x: 19, z: -30, h: 5.2, s: 1.10 },
+      { x:  24, z: -34, h: 5.3, s: 1.10 },
+      { x:  -24, z: -34, h: 6.3, s: 1.10 },
+      { x:  19, z: -48, h: 4.4, s: 0.94 },
+      { x:  20, z: -60, h: 8.1, s: 1.3 },
+      { x:  -19, z: -76, h: 4.9, s: 1.00 },
+      { x:  24, z: -90, h: 5.5, s: 1.14 },
 
-        const leaves1 = Mat4.translation(x, 6.2, z).times(Mat4.scale(2.2, 2.5, 2.2));
-        const leaves2 = Mat4.translation(x, 8.0, z).times(Mat4.scale(1.7, 2.0, 1.7));
-        this.shapes.sphere.draw(caller, this.uniforms, leaves1, this.materials.leaves);
-        this.shapes.sphere.draw(caller, this.uniforms, leaves2, this.materials.leaves);
-      }
+      // new trees
+      { x: -28, z: -28, h: 5.1, s: 1.06 },
+      { x: -20, z: -56, h: 4.7, s: 0.97 },
+      { x: -27, z: -44, h: 5.4, s: 1.12 },
+
+      { x: 28, z: -28, h: 5.0, s: 1.04 },
+      { x: 30, z: -56, h: 4.8, s: 0.98 },
+      { x: 27, z: -84, h: 5.3, s: 1.10 },
+    ];
+
+    for (const t of tree_layout) {
+      this.draw_tree(caller, vec3(t.x, 0, t.z), t.h, t.s);
     }
   }
 
