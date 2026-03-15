@@ -1,10 +1,10 @@
 import { tiny, defs } from '../common.js';
 
 const {
-  vec3, vec4, color, Mat4, Matrix, Shader, Component,
+  vec3, vec4, color, Mat4, Matrix, Shader, Texture, Component,
 } = tiny;
 
-const { Square, Subdivision_Sphere, Capped_Cylinder, Torus, Phong_Shader } = defs;
+const { Square, Subdivision_Sphere, Capped_Cylinder, Closed_Cone, Torus, Phong_Shader } = defs;
 
 /* =========================
    Tunable Constants
@@ -261,6 +261,7 @@ export class Bullseye_Range extends Component {
       bow_arc: new Torus(20, 20),
       dot: new Subdivision_Sphere(2),
       sphere: new Subdivision_Sphere(4),
+      cone: new Closed_Cone(10, 20),
     };
 
     const phong = new Phong_Shader(1);
@@ -280,10 +281,19 @@ export class Bullseye_Range extends Component {
       leaves:       { shader: phong, color: color(0.10, 0.42, 0.16, 1), ambient: 0.42, diffusivity: 0.85 },
       hill:         { shader: phong, color: color(0.19, 0.34, 0.14, 1), ambient: 0.32, diffusivity: 0.92 },
       hill_far:     { shader: phong, color: color(0.23, 0.40, 0.20, 1), ambient: 0.36, diffusivity: 0.88 },
-      mountain:     { shader: phong, color: color(0.43, 0.50, 0.58, 1), ambient: 0.28, diffusivity: 0.85 },
-      sun:          { shader: phong, color: color(1.00, 0.92, 0.55, 1), ambient: 1.0, diffusivity: 0.0 },
-      cloud:        { shader: phong, color: color(1.00, 1.00, 1.00, 0.95), ambient: 0.95, diffusivity: 0.05 },
-
+      mountain:       { shader: phong, color: color(0.43, 0.50, 0.58, 1), ambient: 0.28, diffusivity: 0.85 },
+      mountain_dark:  { shader: phong, color: color(0.30, 0.35, 0.40, 1), ambient: 0.24, diffusivity: 0.88 },
+      mountain_light: { shader: phong, color: color(0.55, 0.60, 0.66, 1), ambient: 0.30, diffusivity: 0.84 },
+      mountain_clear: { shader: phong, color: color(0.46, 0.52, 0.60, 1), ambient: 0.30, diffusivity: 0.85 },
+      mountain_rain:  { shader: phong, color: color(0.34, 0.38, 0.44, 1), ambient: 0.22, diffusivity: 0.88 },
+      mountain_snowy: { shader: phong, color: color(0.40, 0.45, 0.52, 1), ambient: 0.26, diffusivity: 0.86 },
+      
+      snow_cap:       { shader: phong, color: color(1, 1, 1, .95), ambient: 0.95, diffusivity: 0.4 },
+      sun:          {   shader: new defs.Textured_Phong(), color: color(0, 0, 0, 1), ambient: 1, diffusivity: 0.0, specularity: 0, texture: new Texture("assets/textures/sun.jpg") },
+      cloud:        { shader: phong, color: color(1.00, 1.00, 1.00, 0.95), ambient: 0.85, diffusivity: 0.05 },
+      cloud_dark:     { shader: phong, color: color(0.45, 0.48, 0.52, 0.95), ambient: 0.65, diffusivity: 0.18 },
+      cloud_storm:    { shader: phong, color: color(0.28, 0.30, 0.34, 0.98), ambient: 0.45, diffusivity: 0.25 },
+      
       sleeve:       { shader: phong, color: color(0.10, 0.15, 0.24, 1), ambient: 0.35, diffusivity: 0.9 },
       cuff:         { shader: phong, color: color(0.18, 0.22, 0.32, 1), ambient: 0.35, diffusivity: 0.9 },
       glove:        { shader: phong, color: color(0.12, 0.10, 0.08, 1), ambient: 0.38, diffusivity: 0.88 },
@@ -391,6 +401,22 @@ export class Bullseye_Range extends Component {
   }
 
   /* ---------- Helpers ---------- */
+
+  is_rainy_weather() {
+    return this.weather.type === 'rain';
+  }
+
+  is_snowy_weather() {
+    return this.weather.type === 'snow';
+  }
+
+  is_stormy_weather() {
+    return this.weather.type === 'rain' || this.weather.type === 'snow';
+  }
+
+  show_mountain_snow() {
+    return this.weather.type === 'rain' || this.weather.type === 'snow';
+  }
 
   clamp(x, lo, hi) {
     return Math.max(lo, Math.min(hi, x));
@@ -560,7 +586,7 @@ export class Bullseye_Range extends Component {
     this.shapes.post.draw(caller, this.uniforms, thumb, materialThumb);
   }
 
-  draw_cloud(caller, center, sx, sy, sz) {
+  draw_cloud(caller, center, sx, sy, sz, material = this.materials.cloud) {
     const blobs = [
       vec3(-0.9, 0.0, 0.0),
       vec3(-0.3, 0.25, 0.1),
@@ -574,23 +600,110 @@ export class Bullseye_Range extends Component {
         center[1] + b[1] * sy,
         center[2] + b[2] * sz
       ).times(Mat4.scale(0.85 * sx, 0.55 * sy, 0.55 * sz));
-      this.shapes.sphere.draw(caller, this.uniforms, t, this.materials.cloud);
+      this.shapes.sphere.draw(caller, this.uniforms, t, material);
     }
   }
 
+  // drawing mountain
+  draw_mountain(caller, base_pos, width, height, depth = 1.0) {
+    let main_mat = this.materials.mountain_clear;
+    let dark_mat = this.materials.mountain_dark;
+    let light_mat = this.materials.mountain_light;
+
+    if (this.weather.type === 'rain') {
+      main_mat = this.materials.mountain_rain;
+      dark_mat = this.materials.mountain_rain;
+      light_mat = this.materials.mountain;
+    } else if (this.weather.type === 'snow') {
+      main_mat = this.materials.mountain_snowy;
+      dark_mat = this.materials.mountain;
+      light_mat = this.materials.mountain_light;
+    }
+
+    const [x, y, z] = base_pos;
+
+    // Main central peak
+    const main_peak = Mat4.translation(x, y, z)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(width * 8, depth * width * 0.9, height * 1.6));
+    this.shapes.cone.draw(caller, this.uniforms, main_peak, main_mat);
+
+    // Left secondary peak
+    const left_peak = Mat4.translation(x - width * 0.85, y - 0.3, z + 1.5)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(width * 5, depth * width * 0.62, height * .1));
+    this.shapes.cone.draw(caller, this.uniforms, left_peak, dark_mat);
+
+    // Right secondary peak
+    const right_peak = Mat4.translation(x + width * 0.95, y - 0.2, z - 1.2)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(width * 0.66, depth * width * 0.58, height * 0.72));
+    this.shapes.cone.draw(caller, this.uniforms, right_peak, light_mat);
+
+    // Sharp front spike
+    const front_spike = Mat4.translation(x + width * 0.18, y + height * 0.08, z + 2.8)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(width * 3, depth * width * 6, height * .8));
+    this.shapes.cone.draw(caller, this.uniforms, front_spike, dark_mat);
+
+    // Small jagged spike
+    const jagged_spike = Mat4.translation(x - width * 0.22, y + height * 0.12, z - 2.4)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(width * 0.22, depth * width * 0.18, height * 0.42));
+    this.shapes.cone.draw(caller, this.uniforms, jagged_spike, light_mat);
+
+    // Snow cap on tallest peak
+    const snow = Mat4.translation(x, y + height * 1.1, z + 0.6)
+      .times(Mat4.rotation(-Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(width * 3, depth * width * .2, height * .5));
+
+    if (this.show_mountain_snow()) {
+      this.shapes.cone.draw(caller, this.uniforms, snow, this.materials.snow_cap);
+    }
+}
+
   draw_scenery(caller) {
+    let sky_material = this.materials.sky;
+
+    if (this.weather.type === 'rain') {
+      sky_material = {
+        ...this.materials.sky,
+        color: color(0.20, 0.20, 0.20, 1),
+        ambient: 0.65
+      };
+    } else if (this.weather.type === 'snow') {
+      sky_material = {
+        ...this.materials.sky,
+        color: color(0.2, 0.2, 0.2, 1),
+        ambient: 0.65
+      };
+    }
+
     // sky dome
     const sky_transform = Mat4.scale(170, 170, 170);
-    this.shapes.sphere.draw(caller, this.uniforms, sky_transform, this.materials.sky);
+    this.shapes.sphere.draw(caller, this.uniforms, sky_transform, sky_material);
 
     // sun
-    const sun_transform = Mat4.translation(38, 42, -120).times(Mat4.scale(7, 7, 7));
-    this.shapes.sphere.draw(caller, this.uniforms, sun_transform, this.materials.sun);
+    if (this.weather.type !== 'rain' && this.weather.type !== 'snow') {
+      const sun_transform = Mat4.translation(38, 42, -120)
+        .times(Mat4.rotation(-Math.PI / 2, 0, 1, 0))
+        .times(Mat4.rotation(Math.PI, 0, 0, 1))
+        .times(Mat4.scale(7, 7, 7));
+
+      this.shapes.sphere.draw(caller, this.uniforms, sun_transform, this.materials.sun);
+    }
+
+    let cloud_material = this.materials.cloud;
+    if (this.weather.type === 'rain') {
+      cloud_material = this.materials.cloud_storm;
+    } else if (this.weather.type === 'snow') {
+      cloud_material = this.materials.cloud_dark;
+    }
 
     // clouds
-    this.draw_cloud(caller, vec3(-28, 26, -95), 4.5, 3.0, 2.2);
-    this.draw_cloud(caller, vec3(18, 22, -85), 3.6, 2.5, 2.0);
-    this.draw_cloud(caller, vec3(45, 28, -110), 4.0, 2.8, 2.4);
+    this.draw_cloud(caller, vec3(-28, 26, -95), 4.5, 3.0, 2.2, cloud_material);
+    this.draw_cloud(caller, vec3(18, 22, -85), 3.6, 2.5, 2.0, cloud_material);
+    this.draw_cloud(caller, vec3(45, 28, -110), 4.0, 2.8, 2.4, cloud_material);
 
     // ground
     const ground_transform = Mat4.translation(0, 0, -55)
@@ -605,14 +718,11 @@ export class Bullseye_Range extends Component {
     this.shapes.ground.draw(caller, this.uniforms, lane_transform, { ...this.materials.ground, color: color(0.30, 0.50, 0.24, 1) });
 
     // far mountains
-    const mountains = [
-      vec3(-70, 16, -150), vec3(-25, 13, -145), vec3(20, 18, -155),
-      vec3(65, 15, -148), vec3(0, 12, -140)
-    ];
-    for (const pos of mountains) {
-      const t = Mat4.translation(...pos).times(Mat4.scale(24, 16, 18));
-      this.shapes.sphere.draw(caller, this.uniforms, t, this.materials.mountain);
-    }
+    this.draw_mountain(caller, vec3(-78, 2, -158), 16, 24, 1.0);
+    this.draw_mountain(caller, vec3(-42, 1, -150), 13, 19, 0.95);
+    this.draw_mountain(caller, vec3(-6,  3, -162), 18, 28, 1.05);
+    this.draw_mountain(caller, vec3(32,  2, -154), 15, 22, 0.9);
+    this.draw_mountain(caller, vec3(72,  1, -160), 17, 25, 1.0);
 
     // rolling hills
     const hill_positions_far = [
