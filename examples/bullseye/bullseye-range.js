@@ -15,15 +15,16 @@ const GAME_CONFIG = {
   baseArrowSpeed: 60,
   aimSensitivity: 0.04,
   maxDrawStrength: 1.0,
-  drawChargeRate: 1.2,       // per second
+  drawChargeRate: 1.2,
   playerHeight: 2.0,
   arrowSpawnForward: 1.0,
-  dtClamp: 1 / 30,           // prevent huge simulation jumps on lag spikes
+  dtClamp: 1 / 30,
+  aimAssistDistance: 70,       // makes off-center arrow pass through the crosshair region
 };
 
 const ARROW_SPEED_PRESETS = [
-  60, 
-  60 * 3, 
+  60,
+  60 * 3,
   60 * 5
 ];
 
@@ -80,6 +81,29 @@ const WEATHER_PRESETS = {
   },
 };
 
+const ARM_CONFIG = {
+  upperArmLen: 0.56,
+  foreArmLen: 0.53,
+
+  upperArmRadius: 0.065,
+  foreArmRadius: 0.070,
+  wristRadius: 0.055,
+  handRadius: 0.090,
+
+  // pull shoulders farther off screen so we mostly see the forearms/hands
+  leftShoulderOffset: vec3(-0.52, -0.45, 0.20),
+  rightShoulderOffset: vec3( 0.58, -0.48, 0.28),
+
+  // bow more centered and cleaner in view
+  bowGripOffset: vec3(-0.18, -0.22, -0.08),
+  bowForward: 1.55,
+
+  idleNockDistance: 0.10,
+  maxPullDistance: 0.78,
+
+  bowHalfHeight: 0.95,
+};
+
 function randRange(min, max) {
   return min + Math.random() * (max - min);
 }
@@ -106,8 +130,6 @@ class WeatherSystem {
 
   cycle_type() {
     this.current_index = (this.current_index + 1) % this.weather_types.length;
-
-    // Optional cleanup when changing weather so old effects don't linger too long
     if (this.type === 'clear') this.particles.length = 0;
   }
 
@@ -117,9 +139,9 @@ class WeatherSystem {
 
     const p = preset.particle;
     const base_pos = vec3(
-      randRange(-30, 30),
-      randRange(15, 20),
-      randRange(-80, -20)
+      randRange(-35, 35),
+      randRange(14, 24),
+      randRange(-100, -15)
     );
 
     const velocity = vec3(
@@ -148,8 +170,6 @@ class WeatherSystem {
       if (p.age > p.life) continue;
 
       p.pos = p.pos.plus(p.vel.times(dt));
-
-      // Cull if too far below the scene (helps prevent buildup)
       if (p.pos[1] < -5) continue;
 
       remaining.push(p);
@@ -203,7 +223,6 @@ class Arrow {
     this.pos = position;
     this.prev_pos = position;
     this.vel = velocity;
-
     this.alive = true;
     this.stuck = false;
   }
@@ -213,12 +232,10 @@ class Arrow {
 
     this.prev_pos = this.pos;
 
-    // Treat wind vector as acceleration for curved flight
     const accel = vec3(wind_accel[0], gravity + wind_accel[1], wind_accel[2]);
     this.vel = this.vel.plus(accel.times(dt));
     this.pos = this.pos.plus(this.vel.times(dt));
 
-    // Ground hit
     if (this.pos[1] < -2) this.alive = false;
   }
 
@@ -233,65 +250,103 @@ class Arrow {
 ========================= */
 export class Bullseye_Range extends Component {
   init() {
-    console.log("FORCED AGAIN AGAIN!!"); 
     this.widget_options = { make_controls: true };
 
     this.shapes = {
       ground: new Square(),
       target_face: new Capped_Cylinder(30, 30),
-      post: new Capped_Cylinder(4, 12),
+      post: new Capped_Cylinder(6, 16),
       arrow_shaft: new Capped_Cylinder(6, 12),
       arrow_head: new Capped_Cylinder(6, 12),
-      bow_arc: new Torus(15, 15),
+      bow_arc: new Torus(20, 20),
       dot: new Subdivision_Sphere(2),
-      sphere: new Subdivision_Sphere(4), 
+      sphere: new Subdivision_Sphere(4),
     };
 
     const phong = new Phong_Shader(1);
     this.materials = {
-      ground:       { shader: phong, color: color(0.25, 0.4, 0.2, 1), ambient: 0.4, diffusivity: 0.6 },
-      target_white: { shader: phong, color: color(0.9, 0.9, 0.9, 1), ambient: 0.5, diffusivity: 0.8 },
-      target_black: { shader: phong, color: color(0.1, 0.1, 0.1, 1), ambient: 0.5, diffusivity: 0.8 },
-      target_blue:  { shader: phong, color: color(0.2, 0.6, 0.9, 1), ambient: 0.5, diffusivity: 0.8 },
-      target_red:   { shader: phong, color: color(0.8, 0.2, 0.2, 1), ambient: 0.5, diffusivity: 0.8 },
-      target_gold:  { shader: phong, color: color(0.9, 0.8, 0.1, 1), ambient: 0.6, diffusivity: 0.8 },
-      wood:         { shader: phong, color: color(0.4, 0.25, 0.1, 1), ambient: 0.4, diffusivity: 0.8 },
-      arrow:        { shader: phong, color: color(0.8, 0.8, 0.8, 1), ambient: 0.5, diffusivity: 0.8 },
+      ground:       { shader: phong, color: color(0.22, 0.45, 0.20, 1), ambient: 0.38, diffusivity: 0.8 },
+      target_white: { shader: phong, color: color(0.95, 0.95, 0.95, 1), ambient: 0.5, diffusivity: 0.8 },
+      target_black: { shader: phong, color: color(0.08, 0.08, 0.08, 1), ambient: 0.45, diffusivity: 0.85 },
+      target_blue:  { shader: phong, color: color(0.15, 0.48, 0.85, 1), ambient: 0.52, diffusivity: 0.82 },
+      target_red:   { shader: phong, color: color(0.82, 0.18, 0.18, 1), ambient: 0.52, diffusivity: 0.82 },
+      target_gold:  { shader: phong, color: color(0.95, 0.82, 0.08, 1), ambient: 0.62, diffusivity: 0.82 },
+      wood:         { shader: phong, color: color(0.42, 0.26, 0.12, 1), ambient: 0.35, diffusivity: 0.85 },
+      bow_dark:     { shader: phong, color: color(0.25, 0.16, 0.08, 1), ambient: 0.35, diffusivity: 0.9 },
+      arrow:        { shader: phong, color: color(0.78, 0.80, 0.82, 1), ambient: 0.5, diffusivity: 0.8 },
       particles:    { shader: phong, color: color(1, 1, 1, 0.7), ambient: 1.0, diffusivity: 0.0 },
-      dot:          { shader: phong, color: color(1, 0, 0, 0.6), ambient: 1.0, diffusivity: 0.0 },
-      sky:    { shader: phong, color: color(0.4, 0.7, 0.9, 1), ambient: 1.0, diffusivity: 0.0 }, // 1.0 ambient so it doesn't get dark
-      leaves: { shader: phong, color: color(0.1, 0.4, 0.15, 1), ambient: 0.4, diffusivity: 0.8 },
-      hill:   { shader: phong, color: color(0.2, 0.35, 0.15, 1), ambient: 0.3, diffusivity: 0.9 },
+      dot:          { shader: phong, color: color(1, 0.1, 0.1, 0.7), ambient: 1.0, diffusivity: 0.0 },
+      sky:          { shader: phong, color: color(0.53, 0.77, 0.96, 1), ambient: 1.0, diffusivity: 0.0 },
+      leaves:       { shader: phong, color: color(0.10, 0.42, 0.16, 1), ambient: 0.42, diffusivity: 0.85 },
+      hill:         { shader: phong, color: color(0.19, 0.34, 0.14, 1), ambient: 0.32, diffusivity: 0.92 },
+      hill_far:     { shader: phong, color: color(0.23, 0.40, 0.20, 1), ambient: 0.36, diffusivity: 0.88 },
+      mountain:     { shader: phong, color: color(0.43, 0.50, 0.58, 1), ambient: 0.28, diffusivity: 0.85 },
+      sun:          { shader: phong, color: color(1.00, 0.92, 0.55, 1), ambient: 1.0, diffusivity: 0.0 },
+      cloud:        { shader: phong, color: color(1.00, 1.00, 1.00, 0.95), ambient: 0.95, diffusivity: 0.05 },
+
+      sleeve:       { shader: phong, color: color(0.10, 0.15, 0.24, 1), ambient: 0.35, diffusivity: 0.9 },
+      cuff:         { shader: phong, color: color(0.18, 0.22, 0.32, 1), ambient: 0.35, diffusivity: 0.9 },
+      glove:        { shader: phong, color: color(0.12, 0.10, 0.08, 1), ambient: 0.38, diffusivity: 0.88 },
+      string:       { shader: phong, color: color(0.94, 0.94, 0.96, 1), ambient: 0.9, diffusivity: 0.1 },
     };
 
     this.reset_game();
 
-    // --- NEW: HTML/CSS Scoreboard Overlay ---
     this.scoreboard_el = document.createElement('div');
-    
-    // Style it to look like a digital display
     Object.assign(this.scoreboard_el.style, {
       position: 'absolute',
       top: '20px',
       left: '50%',
-      transform: 'translateX(-50%)',         // Centers the div
-      backgroundColor: 'rgba(5, 15, 5, 0.85)', // Dark greenish-black background
-      border: '3px solid #0f0',              // Bright green border
-      color: '#0f0',                         // Bright green text
-      fontFamily: '"Courier New", Courier, monospace', // Digital/retro font
+      transform: 'translateX(-50%)',
+      backgroundColor: 'rgba(5, 15, 5, 0.85)',
+      border: '3px solid #0f0',
+      color: '#0f0',
+      fontFamily: '"Courier New", Courier, monospace',
       padding: '15px 30px',
       fontSize: '24px',
       fontWeight: 'bold',
       borderRadius: '10px',
-      boxShadow: '0 0 15px rgba(0, 255, 0, 0.5)', // Outer glow
-      textShadow: '0 0 8px #0f0',            // Text glow
-      pointerEvents: 'none',                 // Lets mouse clicks pass through to the game
-      zIndex: '1000',                        // Keeps it on top of the canvas
+      boxShadow: '0 0 15px rgba(0, 255, 0, 0.5)',
+      textShadow: '0 0 8px #0f0',
+      pointerEvents: 'none',
+      zIndex: '1000',
       textAlign: 'center',
-      whiteSpace: 'pre'                      // Keeps our exact spacing
+      whiteSpace: 'pre'
     });
-
     document.body.appendChild(this.scoreboard_el);
+
+    // crosshair so aiming actually feels readable
+    this.crosshair_el = document.createElement('div');
+    Object.assign(this.crosshair_el.style, {
+      position: 'absolute',
+      left: '50%',
+      top: '50%',
+      width: '22px',
+      height: '22px',
+      transform: 'translate(-50%, -50%)',
+      pointerEvents: 'none',
+      zIndex: '1000',
+      opacity: '0.95'
+    });
+    this.crosshair_el.innerHTML = `
+      <div style="
+        position:absolute; left:50%; top:0; width:2px; height:8px;
+        transform:translateX(-50%); background:white; box-shadow:0 0 6px rgba(255,255,255,0.9);"></div>
+      <div style="
+        position:absolute; left:50%; bottom:0; width:2px; height:8px;
+        transform:translateX(-50%); background:white; box-shadow:0 0 6px rgba(255,255,255,0.9);"></div>
+      <div style="
+        position:absolute; top:50%; left:0; width:8px; height:2px;
+        transform:translateY(-50%); background:white; box-shadow:0 0 6px rgba(255,255,255,0.9);"></div>
+      <div style="
+        position:absolute; top:50%; right:0; width:8px; height:2px;
+        transform:translateY(-50%); background:white; box-shadow:0 0 6px rgba(255,255,255,0.9);"></div>
+      <div style="
+        position:absolute; left:50%; top:50%; width:4px; height:4px; border-radius:50%;
+        transform:translate(-50%,-50%); background:rgba(255,255,255,0.95);
+        box-shadow:0 0 7px rgba(255,255,255,1);"></div>
+    `;
+    document.body.appendChild(this.crosshair_el);
 
     const style = document.createElement('style');
     style.innerHTML = `
@@ -308,7 +363,7 @@ export class Bullseye_Range extends Component {
   }
 
   reset_game() {
-    this.arrow_speed_index = 0; 
+    this.arrow_speed_index = 0;
     this.score = 0;
     this.shots_taken = 0;
     this.max_shots = GAME_CONFIG.maxShots;
@@ -336,6 +391,10 @@ export class Bullseye_Range extends Component {
 
   /* ---------- Helpers ---------- */
 
+  clamp(x, lo, hi) {
+    return Math.max(lo, Math.min(hi, x));
+  }
+
   get_weather_wind_vector() {
     const preset = this.weather.preset;
     const s = preset.windStrength;
@@ -344,7 +403,7 @@ export class Bullseye_Range extends Component {
   }
 
   current_aim_direction() {
-    const cy = Math.cos(this.aim_yaw),   sy = Math.sin(this.aim_yaw);
+    const cy = Math.cos(this.aim_yaw), sy = Math.sin(this.aim_yaw);
     const cp = Math.cos(this.aim_pitch), sp = Math.sin(this.aim_pitch);
     return vec3(sy * cp, sp, -cy * cp).normalized();
   }
@@ -372,59 +431,15 @@ export class Bullseye_Range extends Component {
 
   trigger_scoreboard_flash() {
     if (!this.scoreboard_el) return;
-    
-    // Remove the class, trigger a layout reflow, and add it back to restart the animation
     this.scoreboard_el.classList.remove('flash-active');
-    void this.scoreboard_el.offsetWidth; // Magic browser trick to reset CSS animations
+    void this.scoreboard_el.offsetWidth;
     this.scoreboard_el.classList.add('flash-active');
   }
 
-  draw_scenery(caller) {
-    // 1. Skybox (A massive sphere wrapped around the scene)
-    const sky_transform = Mat4.scale(150, 150, 150);
-    this.shapes.sphere.draw(caller, this.uniforms, sky_transform, this.materials.sky);
-
-    // 2. Expanded Ground (Scale it up so we don't see the edges easily)
-    const ground_transform = Mat4.translation(0, 0, -40)
-      .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
-      .times(Mat4.scale(150, 150, 1));
-    this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
-
-    // 3. Distant Rolling Hills (Stretched spheres)
-    const hill_positions = [
-      vec3(-40, -5, -100), vec3(40, -8, -110), vec3(0, -10, -120)
-    ];
-    for (const pos of hill_positions) {
-      const hill_transform = Mat4.translation(...pos)
-        .times(Mat4.scale(40, 20, 20)); // Stretch them wide and tall
-      this.shapes.sphere.draw(caller, this.uniforms, hill_transform, this.materials.hill);
-    }
-
-    // 4. Trees lining the sides
-    const tree_z_positions = [-20, -40, -60, -80];
-    for (const z of tree_z_positions) {
-      // Draw a tree on the left and right for each Z depth
-      for (const x of [-25, 25]) {
-        // Trunk
-        const trunk_transform = Mat4.translation(x, 2, z)
-          .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
-          .times(Mat4.scale(1, 1, 4));
-        this.shapes.post.draw(caller, this.uniforms, trunk_transform, this.materials.wood);
-
-        // Leaves
-        const leaves_transform = Mat4.translation(x, 6, z)
-          .times(Mat4.scale(4, 5, 4)); // Slightly oval leaves
-        this.shapes.sphere.draw(caller, this.uniforms, leaves_transform, this.materials.leaves);
-      }
-    }
-  }
-
-  // Stable orientation basis from direction vector
   get_basis_from_dir(dir) {
     const forward = dir.normalized();
     let upHint = vec3(0, 1, 0);
 
-    // If nearly parallel, switch up reference
     if (Math.abs(forward.dot(upHint)) > 0.995) {
       upHint = vec3(1, 0, 0);
     }
@@ -443,22 +458,220 @@ export class Bullseye_Range extends Component {
     );
   }
 
+  get_view_axes(dir) {
+    const forward = dir.normalized();
+    let upHint = vec3(0, 1, 0);
+
+    if (Math.abs(forward.dot(upHint)) > 0.995) {
+      upHint = vec3(1, 0, 0);
+    }
+
+    let right = forward.cross(upHint);
+    if (right.norm() < 1e-5) right = vec3(1, 0, 0);
+    right = right.normalized();
+
+    const up = right.cross(forward).normalized();
+
+    return { forward, right, up };
+  }
+
+  offset_in_view_space(base, axes, offset) {
+    return base
+      .plus(axes.right.times(offset[0]))
+      .plus(axes.up.times(offset[1]))
+      .plus(axes.forward.times(offset[2]));
+  }
+
+  solve_two_bone_ik(shoulder, target, len1, len2, bend_hint) {
+    let toTarget = target.minus(shoulder);
+    let dist = toTarget.norm();
+
+    if (dist < 1e-6) {
+      toTarget = vec3(0, 0, -1);
+      dist = 1e-6;
+    }
+
+    const minReach = Math.abs(len1 - len2) + 1e-4;
+    const maxReach = len1 + len2 - 1e-4;
+    const clampedDist = this.clamp(dist, minReach, maxReach);
+
+    const dir = toTarget.normalized();
+
+    let bendDir = bend_hint.minus(dir.times(bend_hint.dot(dir)));
+    if (bendDir.norm() < 1e-5) {
+      bendDir = Math.abs(dir[1]) < 0.95 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+      bendDir = bendDir.minus(dir.times(bendDir.dot(dir)));
+    }
+    bendDir = bendDir.normalized();
+
+    const cosShoulder = this.clamp(
+      (len1 * len1 + clampedDist * clampedDist - len2 * len2) / (2 * len1 * clampedDist),
+      -1, 1
+    );
+    const sinShoulder = Math.sqrt(Math.max(0, 1 - cosShoulder * cosShoulder));
+
+    const elbow = shoulder
+      .plus(dir.times(len1 * cosShoulder))
+      .plus(bendDir.times(len1 * sinShoulder));
+
+    const hand = shoulder.plus(dir.times(clampedDist));
+
+    return { elbow, hand };
+  }
+
+  draw_segment(caller, a, b, radius, material) {
+    const diff = b.minus(a);
+    const len = diff.norm();
+    if (len < 1e-5) return;
+
+    const dir = diff.normalized();
+    const basis = this.get_basis_from_dir(dir);
+
+    const transform = Mat4.translation(...a)
+      .times(basis)
+      .times(Mat4.translation(0, 0, len / 2))
+      .times(Mat4.scale(radius, radius, len / 2));
+
+    this.shapes.post.draw(caller, this.uniforms, transform, material);
+  }
+
+  draw_joint(caller, pos, radius, material) {
+    const transform = Mat4.translation(...pos).times(Mat4.scale(radius, radius, radius));
+    this.shapes.sphere.draw(caller, this.uniforms, transform, material);
+  }
+
+  draw_hand(caller, handPos, forwardDir, sideDir, upDir, materialPalm, materialThumb) {
+    const palm = Mat4.translation(...handPos)
+      .times(this.get_basis_from_dir(forwardDir))
+      .times(Mat4.translation(0, 0, 0.07))
+      .times(Mat4.scale(0.07, 0.045, 0.10));
+    this.shapes.sphere.draw(caller, this.uniforms, palm, materialPalm);
+
+    const thumbBase = handPos
+      .plus(sideDir.times(0.04))
+      .plus(upDir.times(-0.015))
+      .plus(forwardDir.times(0.03));
+
+    const thumb = Mat4.translation(...thumbBase)
+      .times(this.get_basis_from_dir(sideDir.plus(forwardDir.times(0.35)).normalized()))
+      .times(Mat4.translation(0, 0, 0.035))
+      .times(Mat4.scale(0.022, 0.022, 0.06));
+    this.shapes.post.draw(caller, this.uniforms, thumb, materialThumb);
+  }
+
+  draw_cloud(caller, center, sx, sy, sz) {
+    const blobs = [
+      vec3(-0.9, 0.0, 0.0),
+      vec3(-0.3, 0.25, 0.1),
+      vec3( 0.3, 0.18, 0.0),
+      vec3( 0.95, 0.0, -0.1),
+      vec3( 0.1, -0.08, 0.15),
+    ];
+    for (const b of blobs) {
+      const t = Mat4.translation(
+        center[0] + b[0] * sx,
+        center[1] + b[1] * sy,
+        center[2] + b[2] * sz
+      ).times(Mat4.scale(0.85 * sx, 0.55 * sy, 0.55 * sz));
+      this.shapes.sphere.draw(caller, this.uniforms, t, this.materials.cloud);
+    }
+  }
+
+  draw_scenery(caller) {
+    // sky dome
+    const sky_transform = Mat4.scale(170, 170, 170);
+    this.shapes.sphere.draw(caller, this.uniforms, sky_transform, this.materials.sky);
+
+    // sun
+    const sun_transform = Mat4.translation(38, 42, -120).times(Mat4.scale(7, 7, 7));
+    this.shapes.sphere.draw(caller, this.uniforms, sun_transform, this.materials.sun);
+
+    // clouds
+    this.draw_cloud(caller, vec3(-28, 26, -95), 4.5, 3.0, 2.2);
+    this.draw_cloud(caller, vec3(18, 22, -85), 3.6, 2.5, 2.0);
+    this.draw_cloud(caller, vec3(45, 28, -110), 4.0, 2.8, 2.4);
+
+    // ground
+    const ground_transform = Mat4.translation(0, 0, -55)
+      .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(180, 180, 1));
+    this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
+
+    // shooting lane strip
+    const lane_transform = Mat4.translation(0, 0.01, -35)
+      .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
+      .times(Mat4.scale(5.5, 55, 1));
+    this.shapes.ground.draw(caller, this.uniforms, lane_transform, { ...this.materials.ground, color: color(0.30, 0.50, 0.24, 1) });
+
+    // far mountains
+    const mountains = [
+      vec3(-70, 16, -150), vec3(-25, 13, -145), vec3(20, 18, -155),
+      vec3(65, 15, -148), vec3(0, 12, -140)
+    ];
+    for (const pos of mountains) {
+      const t = Mat4.translation(...pos).times(Mat4.scale(24, 16, 18));
+      this.shapes.sphere.draw(caller, this.uniforms, t, this.materials.mountain);
+    }
+
+    // rolling hills
+    const hill_positions_far = [
+      vec3(-45, -6, -112), vec3(38, -8, -118), vec3(0, -10, -126)
+    ];
+    for (const pos of hill_positions_far) {
+      const t = Mat4.translation(...pos).times(Mat4.scale(42, 20, 24));
+      this.shapes.sphere.draw(caller, this.uniforms, t, this.materials.hill_far);
+    }
+
+    const hill_positions_near = [
+      vec3(-32, -6, -75), vec3(28, -7, -82), vec3(0, -8, -92)
+    ];
+    for (const pos of hill_positions_near) {
+      const t = Mat4.translation(...pos).times(Mat4.scale(28, 14, 18));
+      this.shapes.sphere.draw(caller, this.uniforms, t, this.materials.hill);
+    }
+
+    // lane side fences
+    for (const x of [-8, 8]) {
+      for (let z = -16; z >= -82; z -= 10) {
+        const post_t = Mat4.translation(x, 1.2, z).times(Mat4.scale(0.12, 1.2, 0.12));
+        this.shapes.post.draw(caller, this.uniforms, post_t, this.materials.wood);
+      }
+
+      const rail1 = Mat4.translation(x, 1.8, -50).times(Mat4.scale(0.06, 0.06, 33));
+      const rail2 = Mat4.translation(x, 0.95, -50).times(Mat4.scale(0.05, 0.05, 33));
+      this.shapes.post.draw(caller, this.uniforms, rail1, this.materials.wood);
+      this.shapes.post.draw(caller, this.uniforms, rail2, this.materials.wood);
+    }
+
+    // trees
+    const tree_z_positions = [-22, -34, -48, -62, -76, -90];
+    for (const z of tree_z_positions) {
+      for (const x of [-24, -19, 19, 24]) {
+        const trunk_transform = Mat4.translation(x, 2.5, z)
+          .times(Mat4.scale(0.35, 2.5, 0.35));
+        this.shapes.post.draw(caller, this.uniforms, trunk_transform, this.materials.wood);
+
+        const leaves1 = Mat4.translation(x, 6.2, z).times(Mat4.scale(2.2, 2.5, 2.2));
+        const leaves2 = Mat4.translation(x, 8.0, z).times(Mat4.scale(1.7, 2.0, 1.7));
+        this.shapes.sphere.draw(caller, this.uniforms, leaves1, this.materials.leaves);
+        this.shapes.sphere.draw(caller, this.uniforms, leaves2, this.materials.leaves);
+      }
+    }
+  }
+
   draw_arrow_mesh(caller, pos, dir) {
     const basis = this.get_basis_from_dir(dir);
 
-    // Slender, realistic arrow proportions
-    const shaft_radius = 0.008;   // much thinner shaft
-    const shaft_length = 2.8;     // slightly longer for elegance
+    const shaft_radius = 0.008;
+    const shaft_length = 2.8;
 
-    // 1. Shaft — thin, long, wooden rod
     const shaft_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length / 2))
       .times(Mat4.scale(shaft_radius, shaft_radius, shaft_length / 2));
 
-    // 2. Arrow Head — narrow, pointed tip (like a bodkin point)
     const head_length = 0.18;
-    const head_radius = 0.018;   // narrower, more tapered
+    const head_radius = 0.018;
     const head_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length + head_length / 2))
@@ -467,22 +680,19 @@ export class Bullseye_Range extends Component {
     this.shapes.arrow_shaft.draw(caller, this.uniforms, shaft_transform, this.materials.wood);
     this.shapes.arrow_head.draw(caller, this.uniforms, head_transform, this.materials.arrow);
 
-    // 3. Fletching — 3 elegant, flat vanes near the nock end
-    //    Each vane is a thin flat quad, fanned 120° apart around the shaft.
     const vane_colors = [this.materials.target_red, this.materials.target_white, this.materials.target_white];
     for (let i = 0; i < 3; i++) {
       const angle = i * (2 * Math.PI / 3);
       const vane_transform = Mat4.translation(...pos)
         .times(basis)
-        .times(Mat4.rotation(angle, 0, 0, 1))           // fan around shaft
-        .times(Mat4.translation(0, 0.03, 0.28))          // sit just above shaft surface, near back
-        .times(Mat4.rotation(Math.PI * 0.08, 1, 0, 0))  // gentle helical cant
-        .times(Mat4.scale(0.003, 0.07, 0.22));           // ultra-thin, medium-height, elongated
+        .times(Mat4.rotation(angle, 0, 0, 1))
+        .times(Mat4.translation(0, 0.03, 0.28))
+        .times(Mat4.rotation(Math.PI * 0.08, 1, 0, 0))
+        .times(Mat4.scale(0.003, 0.07, 0.22));
 
       this.shapes.ground.draw(caller, this.uniforms, vane_transform, vane_colors[i]);
     }
 
-    // 4. Nock — tiny dark cylinder at the very back of the shaft
     const nock_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, 0.06))
@@ -490,20 +700,157 @@ export class Bullseye_Range extends Component {
 
     this.shapes.arrow_shaft.draw(caller, this.uniforms, nock_transform, this.materials.target_black);
   }
+
+  get_bow_setup() {
+    const dir = this.current_aim_direction();
+    const origin = this.get_player_origin();
+    const axes = this.get_view_axes(dir);
+
+    const bowGrip = this.offset_in_view_space(
+      origin.plus(dir.times(ARM_CONFIG.bowForward)),
+      axes,
+      ARM_CONFIG.bowGripOffset
+    );
+
+    const drawDist = ARM_CONFIG.idleNockDistance + this.draw_strength * ARM_CONFIG.maxPullDistance;
+    const nockPos = bowGrip.minus(dir.times(drawDist));
+
+    const leftShoulder = this.offset_in_view_space(origin, axes, ARM_CONFIG.leftShoulderOffset);
+    const rightShoulder = this.offset_in_view_space(origin, axes, ARM_CONFIG.rightShoulderOffset);
+
+    const bowTop = bowGrip.plus(axes.up.times(ARM_CONFIG.bowHalfHeight));
+    const bowBottom = bowGrip.minus(axes.up.times(ARM_CONFIG.bowHalfHeight));
+
+    return {
+      dir,
+      origin,
+      axes,
+      bowGrip,
+      nockPos,
+      leftShoulder,
+      rightShoulder,
+      bowTop,
+      bowBottom
+    };
+  }
+
+  draw_arm_ik(caller, shoulder, target, bend_hint, handForward, handSide, handUp, isRight) {
+    const solved = this.solve_two_bone_ik(
+      shoulder,
+      target,
+      ARM_CONFIG.upperArmLen,
+      ARM_CONFIG.foreArmLen,
+      bend_hint
+    );
+
+    // upper arm mostly hidden, but still there for continuity
+    this.draw_segment(caller, shoulder, solved.elbow, ARM_CONFIG.upperArmRadius, this.materials.sleeve);
+
+    // fuller forearm sleeve
+    this.draw_segment(caller, solved.elbow, solved.hand, ARM_CONFIG.foreArmRadius, this.materials.sleeve);
+
+    // cuff near wrist
+    const wristMid = solved.elbow.plus(solved.hand.minus(solved.elbow).times(0.82));
+    this.draw_segment(
+      caller,
+      wristMid,
+      solved.hand,
+      ARM_CONFIG.wristRadius,
+      this.materials.cuff
+    );
+
+    this.draw_joint(caller, solved.elbow, 0.075, this.materials.sleeve);
+
+    const handOffset = isRight ? handSide.times(-0.015) : handSide.times(0.015);
+    const palmCenter = solved.hand.plus(handOffset);
+    this.draw_hand(caller, palmCenter, handForward, handSide, handUp, this.materials.glove, this.materials.glove);
+
+    return solved;
+  }
+
+  draw_bow_rig(caller) {
+    const setup = this.get_bow_setup();
+    const { dir, axes, bowGrip, nockPos, leftShoulder, rightShoulder, bowTop, bowBottom } = setup;
+
+    // more natural elbow bend directions
+    const leftBendHint =
+      axes.right.times(-0.95).plus(axes.up.times(-0.55)).plus(dir.times(0.20));
+    const rightBendHint =
+      axes.right.times(0.95).plus(axes.up.times(-0.55)).plus(dir.times(0.10));
+
+    // left hand grips the bow
+    this.draw_arm_ik(
+      caller,
+      leftShoulder,
+      bowGrip,
+      leftBendHint,
+      axes.up,
+      axes.right.times(-1),
+      dir.times(-1),
+      false
+    );
+
+    // right hand pulls the string/nock
+    this.draw_arm_ik(
+      caller,
+      rightShoulder,
+      nockPos,
+      rightBendHint,
+      dir.times(-1),
+      axes.right,
+      axes.up,
+      true
+    );
+
+    // nicer bow shape
+    const bow_transform = Mat4.translation(...bowGrip)
+      .times(this.get_basis_from_dir(dir))
+      .times(Mat4.rotation(Math.PI / 2, 0, 1, 0))
+      .times(Mat4.scale(0.07, 1.25, 0.05));
+    this.shapes.bow_arc.draw(caller, this.uniforms, bow_transform, this.materials.bow_dark);
+
+    // center grip
+    const grip_transform = Mat4.translation(...bowGrip)
+      .times(this.get_basis_from_dir(dir))
+      .times(Mat4.scale(0.045, 0.20, 0.045));
+    this.shapes.post.draw(caller, this.uniforms, grip_transform, this.materials.wood);
+
+    // bow string
+    this.draw_segment(caller, bowTop, nockPos, 0.0045, this.materials.string);
+    this.draw_segment(caller, nockPos, bowBottom, 0.0045, this.materials.string);
+
+    // nocked arrow while drawing / ready
+    if (this.shots_taken < this.max_shots || this.is_drawing) {
+      this.draw_arrow_mesh(caller, nockPos, dir);
+    }
+  }
+
+  get_shot_state() {
+    const setup = this.get_bow_setup();
+    const speed = this.compute_arrow_speed();
+    const wind = this.get_weather_wind_vector();
+
+    // aim point comes from the crosshair / camera center
+    const aimPoint = setup.origin.plus(setup.dir.times(GAME_CONFIG.aimAssistDistance));
+
+    // shoot from the visible nock, but direct it toward where the crosshair is pointing
+    const shotDir = aimPoint.minus(setup.nockPos).normalized();
+    const velocity = shotDir.times(speed).plus(wind);
+
+    return {
+      start: setup.nockPos,
+      velocity,
+      aimDir: shotDir
+    };
+  }
+
   /* ---------- Gameplay ---------- */
 
   spawn_arrow() {
     if (this.shots_taken >= this.max_shots) return;
 
-    const dir = this.current_aim_direction();
-    const start = this.get_player_origin().plus(dir.times(GAME_CONFIG.arrowSpawnForward));
-    const speed = this.compute_arrow_speed();
-    const wind = this.get_weather_wind_vector();
-
-    // Keep your original behavior: initial velocity gets wind bias too
-    const velocity = dir.times(speed).plus(wind);
-
-    this.arrows.push(new Arrow(start, velocity));
+    const shot = this.get_shot_state();
+    this.arrows.push(new Arrow(shot.start, shot.velocity));
     this.shots_taken++;
   }
 
@@ -526,7 +873,6 @@ export class Bullseye_Range extends Component {
     this.arrows = this.arrows.filter(a => a.alive);
   }
 
-  // Continuous collision detection against target z-plane, then radial test in x/y
   resolve_arrow_target_collisions() {
     for (const a of this.arrows) {
       if (!a.alive || a.stuck) continue;
@@ -548,11 +894,9 @@ export class Bullseye_Range extends Component {
         const tHit = (tz - z0) / dz;
         if (tHit < 0 || tHit > 1) continue;
 
-        // IMPORTANT: interpolate along the segment (prev -> current)
         const segment = a.pos.minus(a.prev_pos);
         const hit_pos = a.prev_pos.plus(segment.times(tHit));
 
-        // Radial distance on the target face (ignore z)
         const dx = hit_pos[0] - center[0];
         const dy = hit_pos[1] - center[1];
         const r = Math.sqrt(dx * dx + dy * dy);
@@ -564,14 +908,10 @@ export class Bullseye_Range extends Component {
           this.score += points;
           this.streak = points >= 8 ? this.streak + 1 : 0;
 
-          if (points >= 6){
-            this.trigger_scoreboard_flash(); 
-          }
+          if (points >= 6) this.trigger_scoreboard_flash();
 
           a.stuck = true;
           a.vel = vec3(0, 0, 0);
-
-          // Stick slightly in front of target toward player (positive z here)
           a.pos = hit_pos.plus(vec3(0, 0, 0.2));
           break;
         }
@@ -588,54 +928,28 @@ export class Bullseye_Range extends Component {
 
   /* ---------- Rendering ---------- */
 
-  draw_bow_and_arrow(caller) {
-    const dir = this.current_aim_direction();
-    const origin = this.get_player_origin();
-    const basis = this.get_basis_from_dir(dir);
-
-    // Offset the bow to the right and down for a First-Person view
-    // We move it 1.5 units forward so it doesn't clip into the camera
-    const bow_pos = origin
-      .plus(dir.times(1.5)) 
-      .plus(basis.times(vec4(0.4, -0.3, 0, 0)).to3());
-
-    // Draw the Bow — slender, tall recurve silhouette
-    // The Torus is ring-shaped; we flatten its tube (x/z) and stretch vertically (y)
-    // to get a thin oval arc that reads as a recurve bow limb.
-    const bow_transform = Mat4.translation(...bow_pos)
-      .times(basis)
-      .times(Mat4.rotation(Math.PI / 2, 0, 1, 0))
-      .times(Mat4.scale(0.06, 1.1, 0.06));  // very thin tube, tall oval arc
-    this.shapes.bow_arc.draw(caller, this.uniforms, bow_transform, this.materials.wood);
-
-    // Draw the Nocked Arrow
-    if (this.shots_taken < this.max_shots || this.is_drawing) {
-      // The nock (back of arrow) starts at the bow and moves backward as you pull
-      const draw_dist = this.draw_strength * 0.9;
-      const nock_pos = bow_pos.minus(dir.times(draw_dist));
-      
-      this.draw_arrow_mesh(caller, nock_pos, dir);
-    }
-  }
-
   draw_trajectory(caller) {
     if (!this.is_drawing) return;
 
-    const dir = this.current_aim_direction();
-    let pos = this.get_player_origin().plus(dir.times(1.0));
-    let vel = dir.times(this.compute_arrow_speed()).plus(this.get_weather_wind_vector());
+    const shot = this.get_shot_state();
+    let pos = shot.start;
+    let vel = shot.velocity;
 
     const wind = this.get_weather_wind_vector();
-    const step = 0.1;
-    const maxPoints = 20;
+    const step = 0.075;
+    const maxPoints = 28;
 
     for (let i = 0; i < maxPoints; i++) {
-      vel = vel.plus(vec3(wind[0] * step, this.gravity * step + wind[1] * step, wind[2] * step));
+      vel = vel.plus(vec3(
+        wind[0] * step,
+        this.gravity * step + wind[1] * step,
+        wind[2] * step
+      ));
       pos = pos.plus(vel.times(step));
 
       if (pos[1] < -2) break;
 
-      const t = Mat4.translation(...pos).times(Mat4.scale(0.1, 0.1, 0.1));
+      const t = Mat4.translation(...pos).times(Mat4.scale(0.055, 0.055, 0.055));
       this.shapes.dot.draw(caller, this.uniforms, t, this.materials.dot);
     }
   }
@@ -653,14 +967,13 @@ export class Bullseye_Range extends Component {
       const center = this.target_centers[i];
       const target = this.targets[i];
 
-      const post_transform = Mat4.translation(center[0], center[1] - target.radius - 2.0, center[2])
-        .times(Mat4.scale(0.15, target.radius + 2.0, 0.15));
+      const post_transform = Mat4.translation(center[0], center[1] - target.radius - 2.2, center[2])
+        .times(Mat4.scale(0.16, target.radius + 2.2, 0.16));
       this.shapes.post.draw(caller, this.uniforms, post_transform, this.materials.wood);
 
-      // Slight z offset per ring prevents z-fighting
       let layer = 0;
       for (const ring of rings) {
-        const z_offset = layer * 0.05;
+        const z_offset = layer * 0.045;
 
         const face_transform = Mat4.translation(center[0], center[1], center[2] + z_offset)
           .times(Mat4.scale(target.radius * ring.frac, target.radius * ring.frac, target.depth));
@@ -681,15 +994,16 @@ export class Bullseye_Range extends Component {
   /* ---------- UI Controls ---------- */
 
   render_controls() {
-    this.key_triggered_button('Aim Left', ['ArrowLeft'], () => this.aim_yaw -= this.aim_sensitivity);
-    this.key_triggered_button('Aim Right', ['ArrowRight'], () => this.aim_yaw += this.aim_sensitivity);
+    // fixed: left now actually goes left, right now actually goes right
+    this.key_triggered_button('Aim Left', ['ArrowLeft'], () => this.aim_yaw += this.aim_sensitivity);
+    this.key_triggered_button('Aim Right', ['ArrowRight'], () => this.aim_yaw -= this.aim_sensitivity);
     this.new_line();
 
     this.key_triggered_button('Aim Up', ['ArrowUp'], () => {
-      this.aim_pitch = Math.min(this.aim_pitch + this.aim_sensitivity, 0.4);
+      this.aim_pitch = Math.min(this.aim_pitch + this.aim_sensitivity, 0.45);
     });
     this.key_triggered_button('Aim Down', ['ArrowDown'], () => {
-      this.aim_pitch = Math.max(this.aim_pitch - this.aim_sensitivity, -0.4);
+      this.aim_pitch = Math.max(this.aim_pitch - this.aim_sensitivity, -0.45);
     });
     this.new_line();
 
@@ -697,7 +1011,6 @@ export class Bullseye_Range extends Component {
       'Draw / Release',
       [' '],
       () => {
-        // Prevent OS key-repeat from restarting draw
         if (!this.is_drawing && this.shots_taken < this.max_shots) {
           this.is_drawing = true;
           this.draw_strength = 0;
@@ -708,6 +1021,7 @@ export class Bullseye_Range extends Component {
         if (this.is_drawing) {
           this.is_drawing = false;
           this.spawn_arrow();
+          this.draw_strength = 0;
         }
       }
     );
@@ -715,29 +1029,21 @@ export class Bullseye_Range extends Component {
     this.new_line();
     this.key_triggered_button('Cycle Weather', ['q'], () => this.weather.cycle_type(), 'blue');
     this.key_triggered_button('Reset Game', ['r'], () => this.reset_game(), 'orange');
-    this.key_triggered_button(
-      'Cycle Arrow Speed',
-      ['e'],
-      () => this.cycle_arrow_speed(),
-      'green'
-    );
+    this.key_triggered_button('Cycle Arrow Speed', ['e'], () => this.cycle_arrow_speed(), 'green');
     this.new_line();
 
-
     this.live_string(box => {
-      const speed = ARROW_SPEED_PRESETS[this.arrow_speed_index]; 
-      
+      const speed = ARROW_SPEED_PRESETS[this.arrow_speed_index];
       box.textContent =
         `Score: ${this.score}   Shots: ${this.shots_taken}/${this.max_shots}   ` +
-        `Streak: ${this.streak}   Weather: ${this.weather.type.toUpperCase()} ` +
-        `Speed:  ${speed} `;
+        `Streak: ${this.streak}   Weather: ${this.weather.type.toUpperCase()}   ` +
+        `Speed: ${speed}`;
     });
   }
 
   /* ---------- Main Render Loop ---------- */
 
   render_animation(caller) {
-    // Enforce first-person view
     caller.controls = null;
 
     const camera_matrix = Mat4.rotation(-this.aim_pitch, 1, 0, 0)
@@ -750,11 +1056,12 @@ export class Bullseye_Range extends Component {
       Math.PI / 4,
       caller.width / caller.height,
       1,
-      200
+      220
     );
 
     this.uniforms.lights = [
-      defs.Phong_Shader.light_source(vec4(10, 20, 20, 1), color(1, 1, 1, 1), 400),
+      defs.Phong_Shader.light_source(vec4(25, 40, 10, 1), color(1, 1, 1, 1), 600),
+      defs.Phong_Shader.light_source(vec4(-40, 30, -80, 1), color(0.7, 0.75, 0.9, 1), 220),
     ];
 
     let dt = this.uniforms.animation_delta_time / 1000;
@@ -765,26 +1072,19 @@ export class Bullseye_Range extends Component {
       this.update_simulation(dt);
     }
 
-    // const ground_transform = Mat4.translation(0, 0, -40)
-    //   .times(Mat4.rotation(Math.PI / 2, 1, 0, 0))
-    //   .times(Mat4.scale(80, 80, 1));
-
-    // this.shapes.ground.draw(caller, this.uniforms, ground_transform, this.materials.ground);
-
-    this.draw_scenery(caller); 
+    this.draw_scenery(caller);
     this.draw_targets(caller);
     this.draw_arrows(caller);
-    this.draw_bow_and_arrow(caller);
+    this.draw_bow_rig(caller);
     this.draw_trajectory(caller);
     this.weather.draw(caller, this.uniforms, this.materials.particles);
 
     if (this.scoreboard_el) {
-      // .padStart(4, '0') makes the score look like "0010" instead of "10"
       const paddedScore = this.score.toString().padStart(4, '0');
       const paddedStreak = this.streak.toString().padStart(2, '0');
       const weatherTxt = this.weather.type.toUpperCase().padEnd(5, ' ');
-      
-      this.scoreboard_el.innerHTML = 
+
+      this.scoreboard_el.innerHTML =
         `SCORE: <span style="color:#fff">${paddedScore}</span>  |  ` +
         `SHOTS: ${this.shots_taken}/${this.max_shots}  |  ` +
         `STREAK: <span style="color:orange">${paddedStreak}</span>  |  ` +
