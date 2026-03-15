@@ -225,6 +225,9 @@ class Arrow {
     this.vel = velocity;
     this.alive = true;
     this.stuck = false;
+    this.stuck_dir = null;
+    this.stuck_target_index = null;
+    this.stuck_offset = null;
   }
 
   update(dt, gravity, wind_accel) {
@@ -240,6 +243,7 @@ class Arrow {
   }
 
   get_direction() {
+    if (this.stuck && this.stuck_dir) return this.stuck_dir;   // add this
     if (this.vel.norm() < 1e-5) return vec3(0, 0, -1);
     return this.vel.normalized();
   }
@@ -785,16 +789,16 @@ export class Bullseye_Range extends Component {
   draw_arrow_mesh(caller, pos, dir) {
     const basis = this.get_basis_from_dir(dir);
 
-    const shaft_radius = 0.008;
-    const shaft_length = 2.8;
+    const shaft_radius = 0.02;
+    const shaft_length = 3.2;
 
     const shaft_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length / 2))
       .times(Mat4.scale(shaft_radius, shaft_radius, shaft_length / 2));
 
-    const head_length = 0.18;
-    const head_radius = 0.018;
+    const head_length = 0.28;
+    const head_radius = 0.045;
     const head_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length + head_length / 2))
@@ -811,7 +815,7 @@ export class Bullseye_Range extends Component {
         .times(Mat4.rotation(angle, 0, 0, 1))
         .times(Mat4.translation(0, 0.03, 0.28))
         .times(Mat4.rotation(Math.PI * 0.08, 1, 0, 0))
-        .times(Mat4.scale(0.003, 0.07, 0.22));
+        .times(Mat4.scale(0.008, 0.12, 0.35));
 
       this.shapes.ground.draw(caller, this.uniforms, vane_transform, vane_colors[i]);
     }
@@ -1053,29 +1057,46 @@ this.draw_arm_ik(
         const dy = hit_pos[1] - center[1];
         const r = Math.sqrt(dx * dx + dy * dy);
 
-        if (r <= target.radius) {
-          const ring_frac = r / target.radius;
-          const points = this.score_for_radius_fraction(ring_frac);
+      if (r <= target.radius) {
+        const ring_frac = r / target.radius;
+        const points = this.score_for_radius_fraction(ring_frac);
 
-          this.score += points;
-          this.streak = points >= 8 ? this.streak + 1 : 0;
+        this.score += points;
+        this.streak = points >= 8 ? this.streak + 1 : 0;
 
-          if (points >= 6) this.trigger_scoreboard_flash();
+        if (points >= 6) this.trigger_scoreboard_flash();
 
-          a.stuck = true;
-          a.vel = vec3(0, 0, 0);
-          a.pos = hit_pos.plus(vec3(0, 0, 0.2));
-          break;
-        }
+        const impact_dir = a.get_direction();
+
+        a.stuck = true;
+        a.stuck_dir = impact_dir;
+        a.stuck_target_index = i;
+        a.vel = vec3(0, 0, 0);
+
+        const visible_stuck_pos = hit_pos.plus(vec3(0, 0, 0.45));
+        a.stuck_offset = visible_stuck_pos.minus(center);
+        a.pos = visible_stuck_pos;
+
+        break;
+      }
       }
     }
   }
+update_stuck_arrows() {
+  for (const a of this.arrows) {
+    if (!a.stuck) continue;
+    if (a.stuck_target_index === null) continue;
 
+    const center = this.target_centers[a.stuck_target_index];
+    a.pos = center.plus(a.stuck_offset);
+  }
+}
   update_simulation(dt) {
     this.weather.update(dt);
     this.update_targets(dt);
     this.update_arrows(dt);
     this.resolve_arrow_target_collisions();
+    this.update_stuck_arrows();
   }
 
   /* ---------- Rendering ---------- */
@@ -1101,7 +1122,7 @@ draw_trajectory(caller) {
 
     if (pos[1] < -2) break;
 
-    const t = Mat4.translation(...pos).times(Mat4.scale(0.055, 0.055, 0.055));
+    const t = Mat4.translation(...pos).times(Mat4.scale(0.07, 0.07, 0.07));
     this.shapes.dot.draw(caller, this.uniforms, t, this.materials.dot);
   }
 }
@@ -1136,13 +1157,16 @@ draw_trajectory(caller) {
     }
   }
 
- draw_arrows(caller) {
+draw_arrows(caller) {
   for (const a of this.arrows) {
+    let dir;
 
-    let dir = a.stuck ? vec3(0, 0, -1) : a.get_direction();
-
-    // flip horizontal orientation
-    dir = vec3(-dir[0], dir[1], dir[2]);
+    if (a.stuck && a.stuck_dir) {
+      dir = a.stuck_dir;
+    } else {
+      dir = a.get_direction();
+      dir = vec3(-dir[0], dir[1], dir[2]);
+    }
 
     this.draw_arrow_mesh(caller, a.pos, dir);
   }
