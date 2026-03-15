@@ -368,6 +368,7 @@ export class Bullseye_Range extends Component {
     this.shots_taken = 0;
     this.max_shots = GAME_CONFIG.maxShots;
     this.streak = 0;
+    this.reload_timer=0;
 
     this.aim_yaw = 0;
     this.aim_pitch = 0;
@@ -820,29 +821,29 @@ export class Bullseye_Range extends Component {
     this.draw_segment(caller, nockPos, bowBottom, 0.0045, this.materials.string);
 
     // nocked arrow while drawing / ready
-    if (this.shots_taken < this.max_shots || this.is_drawing) {
-      this.draw_arrow_mesh(caller, nockPos, dir);
-    }
+    if (this.reload_timer <= 0 && this.shots_taken < this.max_shots) {
+
+  const flipped_dir = vec3(-dir[0], dir[1], dir[2]);
+
+  this.draw_arrow_mesh(caller, nockPos, flipped_dir);
+}
   }
 
   get_shot_state() {
-    const setup = this.get_bow_setup();
-    const speed = this.compute_arrow_speed();
-    const wind = this.get_weather_wind_vector();
+  const setup = this.get_bow_setup();
+  const speed = this.compute_arrow_speed();
+  const wind = this.get_weather_wind_vector();
 
-    // aim point comes from the crosshair / camera center
-    const aimPoint = setup.origin.plus(setup.dir.times(GAME_CONFIG.aimAssistDistance));
+  // Launch exactly along camera/look direction
+  const shotDir = setup.dir.normalized();
+  const velocity = shotDir.times(speed).plus(wind);
 
-    // shoot from the visible nock, but direct it toward where the crosshair is pointing
-    const shotDir = aimPoint.minus(setup.nockPos).normalized();
-    const velocity = shotDir.times(speed).plus(wind);
-
-    return {
-      start: setup.nockPos,
-      velocity,
-      aimDir: shotDir
-    };
-  }
+  return {
+    start: setup.nockPos,
+    velocity,
+    aimDir: shotDir
+  };
+}
 
   /* ---------- Gameplay ---------- */
 
@@ -852,6 +853,7 @@ export class Bullseye_Range extends Component {
     const shot = this.get_shot_state();
     this.arrows.push(new Arrow(shot.start, shot.velocity));
     this.shots_taken++;
+    this.reload_timer = 0.35;
   }
 
   update_aim(is_hold, dt) {
@@ -928,31 +930,31 @@ export class Bullseye_Range extends Component {
 
   /* ---------- Rendering ---------- */
 
-  draw_trajectory(caller) {
-    if (!this.is_drawing) return;
+draw_trajectory(caller) {
+  if (!this.is_drawing) return;
 
-    const shot = this.get_shot_state();
-    let pos = shot.start;
-    let vel = shot.velocity;
+  const shot = this.get_shot_state();
+  let pos = shot.start;
+  let vel = shot.velocity;
 
-    const wind = this.get_weather_wind_vector();
-    const step = 0.075;
-    const maxPoints = 28;
+  const wind = this.get_weather_wind_vector();
+  const step = 0.075;
+  const maxPoints = 28;
 
-    for (let i = 0; i < maxPoints; i++) {
-      vel = vel.plus(vec3(
-        wind[0] * step,
-        this.gravity * step + wind[1] * step,
-        wind[2] * step
-      ));
-      pos = pos.plus(vel.times(step));
+  for (let i = 0; i < maxPoints; i++) {
+    vel = vel.plus(vec3(
+      wind[0] * step,
+      this.gravity * step + wind[1] * step,
+      wind[2] * step
+    ));
+    pos = pos.plus(vel.times(step));
 
-      if (pos[1] < -2) break;
+    if (pos[1] < -2) break;
 
-      const t = Mat4.translation(...pos).times(Mat4.scale(0.055, 0.055, 0.055));
-      this.shapes.dot.draw(caller, this.uniforms, t, this.materials.dot);
-    }
+    const t = Mat4.translation(...pos).times(Mat4.scale(0.055, 0.055, 0.055));
+    this.shapes.dot.draw(caller, this.uniforms, t, this.materials.dot);
   }
+}
 
   draw_targets(caller) {
     const rings = [
@@ -984,12 +986,17 @@ export class Bullseye_Range extends Component {
     }
   }
 
-  draw_arrows(caller) {
-    for (const a of this.arrows) {
-      const dir = a.stuck ? vec3(0, 0, -1) : a.get_direction();
-      this.draw_arrow_mesh(caller, a.pos, dir);
-    }
+ draw_arrows(caller) {
+  for (const a of this.arrows) {
+
+    let dir = a.stuck ? vec3(0, 0, -1) : a.get_direction();
+
+    // flip horizontal orientation
+    dir = vec3(-dir[0], dir[1], dir[2]);
+
+    this.draw_arrow_mesh(caller, a.pos, dir);
   }
+}
 
   /* ---------- UI Controls ---------- */
 
@@ -1070,7 +1077,11 @@ export class Bullseye_Range extends Component {
     if (this.uniforms.animate) {
       if (this.is_drawing) this.update_aim(true, dt);
       this.update_simulation(dt);
+      if (this.reload_timer > 0) {
+      this.reload_timer -= dt;
     }
+    }
+
 
     this.draw_scenery(caller);
     this.draw_targets(caller);
