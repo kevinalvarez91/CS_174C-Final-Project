@@ -28,6 +28,17 @@ Components, but this scene graph functionality is not immediately built in.
 
 ## Overview and Usage
 
+### How to run
+
+Simply clone the repository, and run the following command in the root of the repo. 
+
+```
+python3 server.py
+```
+Open Chrome to localhost:8000. 
+
+That's it! You should see bullseye range displayed! 
+
 ### tiny-graphics.js
 
 The main file (tiny-graphics.js) defines just four class definitions useful for a graphics program -- `Shape`, `Shader`,
