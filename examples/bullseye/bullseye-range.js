@@ -405,7 +405,7 @@ export class Bullseye_Range extends Component {
   current_aim_direction() {
     const cy = Math.cos(this.aim_yaw), sy = Math.sin(this.aim_yaw);
     const cp = Math.cos(this.aim_pitch), sp = Math.sin(this.aim_pitch);
-    return vec3(sy * cp, sp, -cy * cp).normalized();
+    return vec3(-sy * cp, sp, -cy * cp).normalized();
   }
 
   get_player_origin() {
