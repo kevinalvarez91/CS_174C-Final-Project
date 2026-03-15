@@ -82,24 +82,24 @@ const WEATHER_PRESETS = {
 };
 
 const ARM_CONFIG = {
-  upperArmLen: 0.56,
-  foreArmLen: 0.53,
+  upperArmLen: 0.72,
+  foreArmLen: 0.72,
 
-  upperArmRadius: 0.065,
-  foreArmRadius: 0.070,
-  wristRadius: 0.055,
-  handRadius: 0.090,
+  upperArmRadius: 0.09,
+  foreArmRadius: 0.10,
+  wristRadius: 0.075,
+  handRadius: 0.14,
 
-  // pull shoulders farther off screen so we mostly see the forearms/hands
-  leftShoulderOffset: vec3(-0.52, -0.45, 0.20),
-  rightShoulderOffset: vec3( 0.58, -0.48, 0.28),
+  // Push shoulders offscreen so the arms feel attached to the body/camera
+  leftShoulderOffset: vec3(-0.95, -0.72, 0.35),
+  rightShoulderOffset: vec3( 0.95, -0.74, 0.38),
 
-  // bow more centered and cleaner in view
-  bowGripOffset: vec3(-0.18, -0.22, -0.08),
-  bowForward: 1.55,
+  // Bow placement
+  bowGripOffset: vec3(-0.16, -0.20, -0.08),
+  bowForward: 1.58,
 
   idleNockDistance: 0.10,
-  maxPullDistance: 0.78,
+  maxPullDistance: 0.82,
 
   bowHalfHeight: 0.95,
 };
@@ -225,6 +225,9 @@ class Arrow {
     this.vel = velocity;
     this.alive = true;
     this.stuck = false;
+    this.stuck_dir = null;
+    this.stuck_target_index = null;
+    this.stuck_offset = null;
   }
 
   update(dt, gravity, wind_accel) {
@@ -240,6 +243,7 @@ class Arrow {
   }
 
   get_direction() {
+    if (this.stuck && this.stuck_dir) return this.stuck_dir;   // add this
     if (this.vel.norm() < 1e-5) return vec3(0, 0, -1);
     return this.vel.normalized();
   }
@@ -573,23 +577,35 @@ export class Bullseye_Range extends Component {
   }
 
   draw_hand(caller, handPos, forwardDir, sideDir, upDir, materialPalm, materialThumb) {
-    const palm = Mat4.translation(...handPos)
-      .times(this.get_basis_from_dir(forwardDir))
-      .times(Mat4.translation(0, 0, 0.07))
-      .times(Mat4.scale(0.07, 0.045, 0.10));
-    this.shapes.sphere.draw(caller, this.uniforms, palm, materialPalm);
+  const basis = this.get_basis_from_dir(forwardDir);
 
-    const thumbBase = handPos
-      .plus(sideDir.times(0.04))
-      .plus(upDir.times(-0.015))
-      .plus(forwardDir.times(0.03));
+  // Main palm
+  const palm = Mat4.translation(...handPos)
+    .times(basis)
+    .times(Mat4.translation(0, -0.01, 0.09))
+    .times(Mat4.scale(0.10, 0.06, 0.16));
+  this.shapes.sphere.draw(caller, this.uniforms, palm, materialPalm);
 
-    const thumb = Mat4.translation(...thumbBase)
-      .times(this.get_basis_from_dir(sideDir.plus(forwardDir.times(0.35)).normalized()))
-      .times(Mat4.translation(0, 0, 0.035))
-      .times(Mat4.scale(0.022, 0.022, 0.06));
-    this.shapes.post.draw(caller, this.uniforms, thumb, materialThumb);
-  }
+  // Back of hand / wrist bulk
+  const back = Mat4.translation(...handPos)
+    .times(basis)
+    .times(Mat4.translation(0, 0.0, 0.01))
+    .times(Mat4.scale(0.075, 0.05, 0.09));
+  this.shapes.sphere.draw(caller, this.uniforms, back, materialPalm);
+
+  // Thumb
+  const thumbBase = handPos
+    .plus(sideDir.times(0.05))
+    .plus(upDir.times(-0.01))
+    .plus(forwardDir.times(0.03));
+
+  const thumbDir = sideDir.plus(forwardDir.times(0.30)).normalized();
+  const thumb = Mat4.translation(...thumbBase)
+    .times(this.get_basis_from_dir(thumbDir))
+    .times(Mat4.translation(0, 0, 0.05))
+    .times(Mat4.scale(0.028, 0.028, 0.08));
+  this.shapes.post.draw(caller, this.uniforms, thumb, materialThumb);
+}
 
   draw_tree(caller, base_pos, trunk_height, canopy_scale = 1.0) {
     const [x, y, z] = base_pos;
@@ -838,16 +854,16 @@ export class Bullseye_Range extends Component {
   draw_arrow_mesh(caller, pos, dir) {
     const basis = this.get_basis_from_dir(dir);
 
-    const shaft_radius = 0.008;
-    const shaft_length = 2.8;
+    const shaft_radius = 0.02;
+    const shaft_length = 3.2;
 
     const shaft_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length / 2))
       .times(Mat4.scale(shaft_radius, shaft_radius, shaft_length / 2));
 
-    const head_length = 0.18;
-    const head_radius = 0.018;
+    const head_length = 0.28;
+    const head_radius = 0.045;
     const head_transform = Mat4.translation(...pos)
       .times(basis)
       .times(Mat4.translation(0, 0, shaft_length + head_length / 2))
@@ -864,7 +880,7 @@ export class Bullseye_Range extends Component {
         .times(Mat4.rotation(angle, 0, 0, 1))
         .times(Mat4.translation(0, 0.03, 0.28))
         .times(Mat4.rotation(Math.PI * 0.08, 1, 0, 0))
-        .times(Mat4.scale(0.003, 0.07, 0.22));
+        .times(Mat4.scale(0.008, 0.12, 0.35));
 
       this.shapes.ground.draw(caller, this.uniforms, vane_transform, vane_colors[i]);
     }
@@ -910,39 +926,66 @@ export class Bullseye_Range extends Component {
     };
   }
 
-  draw_arm_ik(caller, shoulder, target, bend_hint, handForward, handSide, handUp, isRight) {
-    const solved = this.solve_two_bone_ik(
-      shoulder,
-      target,
-      ARM_CONFIG.upperArmLen,
-      ARM_CONFIG.foreArmLen,
-      bend_hint
-    );
+draw_arm_ik(caller, shoulder, target, bend_hint, handForward, handSide, handUp, isRight) {
+  const solved = this.solve_two_bone_ik(
+    shoulder,
+    target,
+    ARM_CONFIG.upperArmLen,
+    ARM_CONFIG.foreArmLen,
+    bend_hint
+  );
 
-    // upper arm mostly hidden, but still there for continuity
-    this.draw_segment(caller, shoulder, solved.elbow, ARM_CONFIG.upperArmRadius, this.materials.sleeve);
+  const upperDir = solved.elbow.minus(shoulder).normalized();
+  const foreDir = solved.hand.minus(solved.elbow).normalized();
 
-    // fuller forearm sleeve
-    this.draw_segment(caller, solved.elbow, solved.hand, ARM_CONFIG.foreArmRadius, this.materials.sleeve);
+  // Upper arm: thicker and mostly offscreen
+  this.draw_segment(
+    caller,
+    shoulder,
+    solved.elbow,
+    ARM_CONFIG.upperArmRadius,
+    this.materials.sleeve
+  );
 
-    // cuff near wrist
-    const wristMid = solved.elbow.plus(solved.hand.minus(solved.elbow).times(0.82));
-    this.draw_segment(
-      caller,
-      wristMid,
-      solved.hand,
-      ARM_CONFIG.wristRadius,
-      this.materials.cuff
-    );
+  // Forearm: this is the visible important part, so make it beefier
+  this.draw_segment(
+    caller,
+    solved.elbow,
+    solved.hand,
+    ARM_CONFIG.foreArmRadius,
+    this.materials.sleeve
+  );
 
-    this.draw_joint(caller, solved.elbow, 0.075, this.materials.sleeve);
+  // Rounded elbow cap
+  this.draw_joint(caller, solved.elbow, 0.11, this.materials.sleeve);
 
-    const handOffset = isRight ? handSide.times(-0.015) : handSide.times(0.015);
-    const palmCenter = solved.hand.plus(handOffset);
-    this.draw_hand(caller, palmCenter, handForward, handSide, handUp, this.materials.glove, this.materials.glove);
+  // Wrist / cuff section near the hand
+  const wristStart = solved.hand.minus(foreDir.times(0.18));
+  this.draw_segment(
+    caller,
+    wristStart,
+    solved.hand,
+    ARM_CONFIG.wristRadius,
+    this.materials.cuff
+  );
 
-    return solved;
-  }
+  // Slight palm offset so the hand looks attached, not centered on the joint
+  const handCenter = solved.hand
+    .plus(handForward.times(0.01))
+    .plus(isRight ? handSide.times(-0.02) : handSide.times(0.02));
+
+  this.draw_hand(
+    caller,
+    handCenter,
+    handForward,
+    handSide,
+    handUp,
+    this.materials.glove,
+    this.materials.glove
+  );
+
+  return solved;
+}
 
   draw_bow_rig(caller) {
     const setup = this.get_bow_setup();
@@ -950,33 +993,34 @@ export class Bullseye_Range extends Component {
 
     // more natural elbow bend directions
     const leftBendHint =
-      axes.right.times(-0.95).plus(axes.up.times(-0.55)).plus(dir.times(0.20));
+    axes.right.times(-1.4).plus(axes.up.times(-0.95)).plus(dir.times(0.15));
+
     const rightBendHint =
-      axes.right.times(0.95).plus(axes.up.times(-0.55)).plus(dir.times(0.10));
-
+    axes.right.times( 1.4).plus(axes.up.times(-0.95)).plus(dir.times(0.05));
     // left hand grips the bow
-    this.draw_arm_ik(
-      caller,
-      leftShoulder,
-      bowGrip,
-      leftBendHint,
-      axes.up,
-      axes.right.times(-1),
-      dir.times(-1),
-      false
-    );
+    // Left hand: bow hand
+this.draw_arm_ik(
+  caller,
+  leftShoulder,
+  bowGrip,
+  leftBendHint,
+  axes.up.times(0.35).plus(dir.times(-0.65)).normalized(),
+  axes.right.times(-1),
+  axes.up,
+  false
+);
 
-    // right hand pulls the string/nock
-    this.draw_arm_ik(
-      caller,
-      rightShoulder,
-      nockPos,
-      rightBendHint,
-      dir.times(-1),
-      axes.right,
-      axes.up,
-      true
-    );
+// Right hand: string pulling hand
+this.draw_arm_ik(
+  caller,
+  rightShoulder,
+  nockPos,
+  rightBendHint,
+  dir.times(-1),
+  axes.right,
+  axes.up,
+  true
+);
 
     // nicer bow shape
     const bow_transform = Mat4.translation(...bowGrip)
@@ -1078,29 +1122,46 @@ export class Bullseye_Range extends Component {
         const dy = hit_pos[1] - center[1];
         const r = Math.sqrt(dx * dx + dy * dy);
 
-        if (r <= target.radius) {
-          const ring_frac = r / target.radius;
-          const points = this.score_for_radius_fraction(ring_frac);
+      if (r <= target.radius) {
+        const ring_frac = r / target.radius;
+        const points = this.score_for_radius_fraction(ring_frac);
 
-          this.score += points;
-          this.streak = points >= 8 ? this.streak + 1 : 0;
+        this.score += points;
+        this.streak = points >= 8 ? this.streak + 1 : 0;
 
-          if (points >= 6) this.trigger_scoreboard_flash();
+        if (points >= 6) this.trigger_scoreboard_flash();
 
-          a.stuck = true;
-          a.vel = vec3(0, 0, 0);
-          a.pos = hit_pos.plus(vec3(0, 0, 0.2));
-          break;
-        }
+        const impact_dir = a.get_direction();
+
+        a.stuck = true;
+        a.stuck_dir = impact_dir;
+        a.stuck_target_index = i;
+        a.vel = vec3(0, 0, 0);
+
+        const visible_stuck_pos = hit_pos.plus(vec3(0, 0, 0.45));
+        a.stuck_offset = visible_stuck_pos.minus(center);
+        a.pos = visible_stuck_pos;
+
+        break;
+      }
       }
     }
   }
+update_stuck_arrows() {
+  for (const a of this.arrows) {
+    if (!a.stuck) continue;
+    if (a.stuck_target_index === null) continue;
 
+    const center = this.target_centers[a.stuck_target_index];
+    a.pos = center.plus(a.stuck_offset);
+  }
+}
   update_simulation(dt) {
     this.weather.update(dt);
     this.update_targets(dt);
     this.update_arrows(dt);
     this.resolve_arrow_target_collisions();
+    this.update_stuck_arrows();
   }
 
   /* ---------- Rendering ---------- */
@@ -1126,7 +1187,7 @@ draw_trajectory(caller) {
 
     if (pos[1] < -2) break;
 
-    const t = Mat4.translation(...pos).times(Mat4.scale(0.055, 0.055, 0.055));
+    const t = Mat4.translation(...pos).times(Mat4.scale(0.07, 0.07, 0.07));
     this.shapes.dot.draw(caller, this.uniforms, t, this.materials.dot);
   }
 }
@@ -1161,13 +1222,16 @@ draw_trajectory(caller) {
     }
   }
 
- draw_arrows(caller) {
+draw_arrows(caller) {
   for (const a of this.arrows) {
+    let dir;
 
-    let dir = a.stuck ? vec3(0, 0, -1) : a.get_direction();
-
-    // flip horizontal orientation
-    dir = vec3(-dir[0], dir[1], dir[2]);
+    if (a.stuck && a.stuck_dir) {
+      dir = a.stuck_dir;
+    } else {
+      dir = a.get_direction();
+      dir = vec3(-dir[0], dir[1], dir[2]);
+    }
 
     this.draw_arrow_mesh(caller, a.pos, dir);
   }
