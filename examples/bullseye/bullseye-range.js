@@ -82,20 +82,19 @@ const WEATHER_PRESETS = {
 };
 
 const ARM_CONFIG = {
-  upperArmLen: 0.56,
-  foreArmLen: 0.53,
+  upperArmLen: 0.62,
+  foreArmLen: 0.56,
 
-  upperArmRadius: 0.065,
-  foreArmRadius: 0.070,
-  wristRadius: 0.055,
-  handRadius: 0.090,
+  upperArmRadius: 0.11,
+  foreArmRadius: 0.10,
+  handRadius: 0.075,
 
-  // pull shoulders farther off screen so we mostly see the forearms/hands
-  leftShoulderOffset: vec3(-0.52, -0.45, 0.20),
-  rightShoulderOffset: vec3( 0.58, -0.48, 0.28),
+  // push shoulders much farther off screen
+  leftShoulderOffset: vec3(-1.05, -0.78, 0.30),
+  rightShoulderOffset: vec3( 1.12, -0.82, 0.38),
 
-  // bow more centered and cleaner in view
-  bowGripOffset: vec3(-0.18, -0.22, -0.08),
+  // keep bow centered in view
+  bowGripOffset: vec3(.25, -.1, 0.0),
   bowForward: 1.55,
 
   idleNockDistance: 0.10,
@@ -106,6 +105,261 @@ const ARM_CONFIG = {
 
 function randRange(min, max) {
   return min + Math.random() * (max - min);
+}
+
+class ArmNode {
+  constructor(name, shape, transform, material) {
+    this.name = name;
+    this.shape = shape;
+    this.transform = transform;
+    this.material = material;
+    this.children = [];
+  }
+}
+
+class ArmArc {
+  constructor(name, parent_node, child_node, location_matrix) {
+    this.name = name;
+    this.parent_node = parent_node;
+    this.child_node = child_node;
+    this.location_matrix = location_matrix;
+    this.articulation_matrix = Mat4.identity();
+  }
+}
+
+class Bow_Arm_Rig {
+  constructor(shapes, materials) {
+    this.shapes = shapes;
+    this.materials = materials;
+
+    this.upper_len = 0.62;
+    this.lower_len = 0.56;
+
+    this.upper_radius = 0.11;
+    this.lower_radius = 0.10;
+    this.hand_radius  = 0.05;
+
+    this.left_root  = Mat4.translation(.24, -0.72, 0.28);
+    this.right_root = Mat4.translation( .24, 1.25, 0.34);
+
+    this._build_left_arm();
+    this._build_right_arm();
+  }
+
+  _segment_transform(length, radius, dir = 1) {
+    let t = Mat4.scale(radius, radius, length * 0.5);
+    t.pre_multiply(Mat4.translation(0, 0, dir * length * 0.5));
+    return t;
+  }
+
+  _hand_transform(radius) {
+    return Mat4.scale(radius, radius, radius);
+  }
+
+  _build_left_arm() {
+    this.left_upper_node = new ArmNode(
+      "left_upper",
+      this.shapes.sphere,
+      this._segment_transform(this.upper_len, this.upper_radius, 1),
+      "sleeve"
+    );
+
+    this.left_lower_node = new ArmNode(
+      "left_lower",
+      this.shapes.sphere,
+      this._segment_transform(this.lower_len, this.lower_radius, 1),
+      "sleeve"
+    );
+
+    this.left_hand_node = new ArmNode(
+      "left_hand",
+      this.shapes.sphere,
+      this._hand_transform(this.hand_radius),
+      "glove"
+    );
+
+    this.left_root_arc = new ArmArc("left_root", null, this.left_upper_node, this.left_root);
+    this.left_elbow_arc = new ArmArc(
+      "left_elbow",
+      this.left_upper_node,
+      this.left_lower_node,
+      Mat4.translation(0, 0, this.upper_len)
+    );
+    this.left_wrist_arc = new ArmArc(
+      "left_wrist",
+      this.left_lower_node,
+      this.left_hand_node,
+      Mat4.translation(0, 0, this.lower_len)
+    );
+
+    this.left_upper_node.children.push(this.left_elbow_arc);
+    this.left_lower_node.children.push(this.left_wrist_arc);
+  }
+
+  _build_right_arm() {
+    this.right_upper_node = new ArmNode(
+      "right_upper",
+      this.shapes.sphere,
+      this._segment_transform(this.upper_len, this.upper_radius, 1),
+      "sleeve"
+    );
+
+    this.right_lower_node = new ArmNode(
+      "right_lower",
+      this.shapes.sphere,
+      this._segment_transform(this.lower_len, this.lower_radius, 1),
+      "sleeve"
+    );
+
+    this.right_hand_node = new ArmNode(
+      "right_hand",
+      this.shapes.sphere,
+      this._hand_transform(this.hand_radius),
+      "glove"
+    );
+
+    this.right_root_arc = new ArmArc("right_root", null, this.right_upper_node, this.right_root);
+    this.right_elbow_arc = new ArmArc(
+      "right_elbow",
+      this.right_upper_node,
+      this.right_lower_node,
+      Mat4.translation(0, 0, this.upper_len)
+    );
+    this.right_wrist_arc = new ArmArc(
+      "right_wrist",
+      this.right_lower_node,
+      this.right_hand_node,
+      Mat4.translation(0, 0, this.lower_len)
+    );
+
+    this.right_upper_node.children.push(this.right_elbow_arc);
+    this.right_lower_node.children.push(this.right_wrist_arc);
+  }
+
+  _aim_basis(origin, target, bend_hint) {
+    let forward = target.minus(origin).normalized();
+
+    let right = forward.cross(bend_hint);
+    if (right.norm() < 1e-5) right = vec3(1, 0, 0);
+    right = right.normalized();
+
+    let up = right.cross(forward);
+    if (up.norm() < 1e-5) up = vec3(0, 1, 0);
+    up = up.normalized();
+
+    right = forward.cross(up).normalized();
+
+    return { forward, up, right };
+  }
+
+  solve_two_bone(origin, target, bend_hint) {
+    const to_target = target.minus(origin);
+    const dist_raw = to_target.norm();
+    const max_len = this.upper_len + this.lower_len - 1e-4;
+    const dist = Math.min(Math.max(dist_raw, 1e-5), max_len);
+
+    const { forward, up, right } = this._aim_basis(origin, target, bend_hint);
+
+    const a = this.upper_len;
+    const b = this.lower_len;
+
+    const x = (a*a - b*b + dist*dist) / (2 * dist);
+    const y_sq = Math.max(0, a*a - x*x);
+    const y = Math.sqrt(y_sq);
+
+    const elbow = origin.plus(forward.times(x)).plus(up.times(y));
+    return { elbow, hand: target };
+  }
+
+  _matrix_from_points(a, b) {
+    const dir = b.minus(a);
+    const len = Math.max(dir.norm(), 1e-5);
+    const z = dir.normalized();
+
+    let ref = Math.abs(z[1]) < 0.95 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+    let x = ref.cross(z);
+    if (x.norm() < 1e-5) x = vec3(1, 0, 0);
+    x = x.normalized();
+    let y = z.cross(x).normalized();
+
+    const basis = Matrix.of(
+      [x[0], x[1], x[2], 0],
+      [y[0], y[1], y[2], 0],
+      [z[0], z[1], z[2], 0],
+      [0,    0,    0,    1]
+    );
+
+    return Mat4.translation(...a).times(basis).times(Mat4.scale(1, 1, len));
+  }
+
+  draw_segment(caller, uniforms, a, b, radius, material) {
+    const dir = b.minus(a);
+    const len = Math.max(dir.norm(), 1e-5);
+    const z = dir.normalized();
+
+    let ref = Math.abs(z[1]) < 0.95 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+    let x = ref.cross(z);
+    if (x.norm() < 1e-5) x = vec3(1, 0, 0);
+    x = x.normalized();
+    let y = z.cross(x).normalized();
+
+    const basis = Matrix.of(
+      [x[0], x[1], x[2], 0],
+      [y[0], y[1], y[2], 0],
+      [z[0], z[1], z[2], 0],
+      [0,    0,    0,    1]
+    );
+
+    const transform = Mat4.translation(...a)
+      .times(basis)
+      .times(Mat4.translation(0, 0, len * 0.5))
+      .times(Mat4.scale(radius, radius, len * 0.5));
+
+    this.shapes.sphere.draw(caller, uniforms, transform, material);
+  }
+
+  draw_hand(caller, uniforms, pos, material) {
+    const t = Mat4.translation(...pos).times(Mat4.scale(this.hand_radius, this.hand_radius, this.hand_radius));
+    this.shapes.sphere.draw(caller, uniforms, t, material);
+  }
+
+  draw_arm(caller, uniforms, shoulder, target, bend_hint) {
+    const solved = this.solve_two_bone(shoulder, target, bend_hint);
+
+    const upper_start = shoulder.plus(solved.elbow.minus(shoulder).times(0.55));
+
+    this.draw_segment(
+      caller, uniforms,
+      upper_start, solved.elbow,
+      this.upper_radius,
+      this.materials.sleeve
+    );
+
+    this.draw_segment(
+      caller, uniforms,
+      solved.elbow, solved.hand,
+      this.lower_radius,
+      this.materials.sleeve
+    );
+
+    this.draw_hand(caller, uniforms, solved.hand, this.materials.glove);
+
+    return solved;
+  }
+
+  draw(caller, uniforms, bowGrip, nockPos, dir, axes) {
+    const leftShoulder  = this.left_root.times(vec4(0, 0, 0, 1)).to3();
+    const rightShoulder = this.right_root.times(vec4(0, 0, 0, 1)).to3();
+
+    const leftBendHint =
+      axes.right.times(-1.45).plus(axes.up.times(-0.95)).plus(dir.times(0.20));
+
+    const rightBendHint =
+      axes.right.times( 1.45).plus(axes.up.times(-0.95)).plus(dir.times(0.10));
+
+    this.draw_arm(caller, uniforms, leftShoulder, bowGrip, leftBendHint);
+    this.draw_arm(caller, uniforms, rightShoulder, nockPos, rightBendHint);
+  }
 }
 
 /* =========================
@@ -266,7 +520,7 @@ export class Bullseye_Range extends Component {
 
     const phong = new Phong_Shader(1);
     this.materials = {
-      ground:       { shader: phong, color: color(0.22, 0.45, 0.20, 1), ambient: 0.38, diffusivity: 0.8 },
+      ground:       { shader: phong, color: color(0.28, 0.52, 0.26, 1), ambient: 0.38, diffusivity: 0.8 },
       target_white: { shader: phong, color: color(0.95, 0.95, 0.95, 1), ambient: 0.5, diffusivity: 0.8 },
       target_black: { shader: phong, color: color(0.08, 0.08, 0.08, 1), ambient: 0.45, diffusivity: 0.85 },
       target_blue:  { shader: phong, color: color(0.15, 0.48, 0.85, 1), ambient: 0.52, diffusivity: 0.82 },
@@ -299,7 +553,7 @@ export class Bullseye_Range extends Component {
       leaves_mid:   { shader: phong, color: color(0.10, 0.34, 0.14, 1), ambient: 0.34, diffusivity: 0.88 },
       leaves_light: { shader: phong, color: color(0.16, 0.42, 0.18, 1), ambient: 0.38, diffusivity: 0.84 },
 
-      sleeve:       { shader: phong, color: color(0.10, 0.15, 0.24, 1), ambient: 0.35, diffusivity: 0.9 },
+      sleeve:       { shader: phong, color: color(0.18, 0.24, 0.36, 1), ambient: 0.35, diffusivity: 0.9 },
       cuff:         { shader: phong, color: color(0.18, 0.22, 0.32, 1), ambient: 0.35, diffusivity: 0.9 },
       glove:        { shader: phong, color: color(0.12, 0.10, 0.08, 1), ambient: 0.38, diffusivity: 0.88 },
       string:       { shader: phong, color: color(0.94, 0.94, 0.96, 1), ambient: 0.9, diffusivity: 0.1 },
@@ -375,6 +629,11 @@ export class Bullseye_Range extends Component {
       }
     `;
     document.head.appendChild(style);
+
+    this.arm_rig = new Bow_Arm_Rig(this.shapes, {
+      sleeve: this.materials.sleeve,
+      glove: this.materials.glove
+    });
   }
 
   reset_game() {
@@ -490,6 +749,30 @@ export class Bullseye_Range extends Component {
     );
   }
 
+  get_basis_from_forward_up(forward, upHint) {
+    let f = forward.normalized();
+
+    let u = upHint.minus(f.times(upHint.dot(f)));
+    if (u.norm() < 1e-5) {
+      u = Math.abs(f[1]) < 0.95 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+      u = u.minus(f.times(u.dot(f)));
+    }
+    u = u.normalized();
+
+    let r = u.cross(f);
+    if (r.norm() < 1e-5) r = vec3(1, 0, 0);
+    r = r.normalized();
+
+    u = f.cross(r).normalized();
+
+    return Matrix.of(
+      [r[0], r[1], r[2], 0],
+      [u[0], u[1], u[2], 0],
+      [f[0], f[1], f[2], 0],
+      [0,    0,    0,    1]
+    );
+  }
+
   get_view_axes(dir) {
     const forward = dir.normalized();
     let upHint = vec3(0, 1, 0);
@@ -573,22 +856,14 @@ export class Bullseye_Range extends Component {
   }
 
   draw_hand(caller, handPos, forwardDir, sideDir, upDir, materialPalm, materialThumb) {
-    const palm = Mat4.translation(...handPos)
-      .times(this.get_basis_from_dir(forwardDir))
-      .times(Mat4.translation(0, 0, 0.07))
-      .times(Mat4.scale(0.07, 0.045, 0.10));
-    this.shapes.sphere.draw(caller, this.uniforms, palm, materialPalm);
+    const hand = Mat4.translation(...handPos)
+      .times(Mat4.scale(
+        ARM_CONFIG.handRadius,
+        ARM_CONFIG.handRadius,
+        ARM_CONFIG.handRadius
+      ));
 
-    const thumbBase = handPos
-      .plus(sideDir.times(0.04))
-      .plus(upDir.times(-0.015))
-      .plus(forwardDir.times(0.03));
-
-    const thumb = Mat4.translation(...thumbBase)
-      .times(this.get_basis_from_dir(sideDir.plus(forwardDir.times(0.35)).normalized()))
-      .times(Mat4.translation(0, 0, 0.035))
-      .times(Mat4.scale(0.022, 0.022, 0.06));
-    this.shapes.post.draw(caller, this.uniforms, thumb, materialThumb);
+    this.shapes.sphere.draw(caller, this.uniforms, hand, this.materials.glove);
   }
 
   draw_tree(caller, base_pos, trunk_height, canopy_scale = 1.0) {
@@ -919,27 +1194,50 @@ export class Bullseye_Range extends Component {
       bend_hint
     );
 
-    // upper arm mostly hidden, but still there for continuity
-    this.draw_segment(caller, shoulder, solved.elbow, ARM_CONFIG.upperArmRadius, this.materials.sleeve);
-
-    // fuller forearm sleeve
-    this.draw_segment(caller, solved.elbow, solved.hand, ARM_CONFIG.foreArmRadius, this.materials.sleeve);
-
-    // cuff near wrist
-    const wristMid = solved.elbow.plus(solved.hand.minus(solved.elbow).times(0.82));
+    // Only show the latter part of the upper arm so it feels like it comes from off screen
+    const upperVisibleStart = shoulder.plus(solved.elbow.minus(shoulder).times(0.55));
     this.draw_segment(
       caller,
-      wristMid,
+      upperVisibleStart,
+      solved.elbow,
+      ARM_CONFIG.upperArmRadius,
+      this.materials.sleeve
+    );
+
+    // Show full forearm
+    this.draw_segment(
+      caller,
+      solved.elbow,
+      solved.hand,
+      ARM_CONFIG.foreArmRadius,
+      this.materials.sleeve
+    );
+
+    // Wrist / cuff
+    const wristStart = solved.elbow.plus(solved.hand.minus(solved.elbow).times(0.78));
+    this.draw_segment(
+      caller,
+      wristStart,
       solved.hand,
       ARM_CONFIG.wristRadius,
       this.materials.cuff
     );
 
-    this.draw_joint(caller, solved.elbow, 0.075, this.materials.sleeve);
+    // Elbow joint
+    this.draw_joint(caller, solved.elbow, 0.090, this.materials.sleeve);
 
-    const handOffset = isRight ? handSide.times(-0.015) : handSide.times(0.015);
-    const palmCenter = solved.hand.plus(handOffset);
-    this.draw_hand(caller, palmCenter, handForward, handSide, handUp, this.materials.glove, this.materials.glove);
+    // Slight offset so the hand sits naturally at the end of the arm
+    const handCenter = solved.hand;
+
+    this.draw_hand(
+      caller,
+      handCenter,
+      handForward,
+      handSide,
+      handUp,
+      this.materials.glove,
+      this.materials.glove
+    );
 
     return solved;
   }
@@ -948,60 +1246,30 @@ export class Bullseye_Range extends Component {
     const setup = this.get_bow_setup();
     const { dir, axes, bowGrip, nockPos, leftShoulder, rightShoulder, bowTop, bowBottom } = setup;
 
-    // more natural elbow bend directions
-    const leftBendHint =
-      axes.right.times(-0.95).plus(axes.up.times(-0.55)).plus(dir.times(0.20));
-    const rightBendHint =
-      axes.right.times(0.95).plus(axes.up.times(-0.55)).plus(dir.times(0.10));
+    this.arm_rig.draw(caller, this.uniforms, bowGrip, nockPos, dir, axes);
 
-    // left hand grips the bow
-    this.draw_arm_ik(
-      caller,
-      leftShoulder,
-      bowGrip,
-      leftBendHint,
-      axes.up,
-      axes.right.times(-1),
-      dir.times(-1),
-      false
-    );
-
-    // right hand pulls the string/nock
-    this.draw_arm_ik(
-      caller,
-      rightShoulder,
-      nockPos,
-      rightBendHint,
-      dir.times(-1),
-      axes.right,
-      axes.up,
-      true
-    );
-
-    // nicer bow shape
+    // Bow body
     const bow_transform = Mat4.translation(...bowGrip)
-      .times(this.get_basis_from_dir(dir))
+      .times(this.get_basis_from_forward_up(dir, axes.up))
       .times(Mat4.rotation(Math.PI / 2, 0, 1, 0))
       .times(Mat4.scale(0.07, 1.25, 0.05));
     this.shapes.bow_arc.draw(caller, this.uniforms, bow_transform, this.materials.bow_dark);
 
-    // center grip
+    // Grip block
     const grip_transform = Mat4.translation(...bowGrip)
-      .times(this.get_basis_from_dir(dir))
+      .times(this.get_basis_from_forward_up(dir, axes.up))
       .times(Mat4.scale(0.045, 0.20, 0.045));
     this.shapes.post.draw(caller, this.uniforms, grip_transform, this.materials.wood);
 
-    // bow string
+    // String
     this.draw_segment(caller, bowTop, nockPos, 0.0045, this.materials.string);
     this.draw_segment(caller, nockPos, bowBottom, 0.0045, this.materials.string);
 
-    // nocked arrow while drawing / ready
+    // Nocked arrow
     if (this.reload_timer <= 0 && this.shots_taken < this.max_shots) {
-
-  const flipped_dir = vec3(-dir[0], dir[1], dir[2]);
-
-  this.draw_arrow_mesh(caller, nockPos, flipped_dir);
-}
+      const flipped_dir = vec3(-dir[0], dir[1], dir[2]);
+      this.draw_arrow_mesh(caller, nockPos, flipped_dir);
+    }
   }
 
   get_shot_state() {
@@ -1242,8 +1510,8 @@ draw_trajectory(caller) {
     );
 
     this.uniforms.lights = [
-      defs.Phong_Shader.light_source(vec4(25, 40, 10, 1), color(1, 1, 1, 1), 600),
-      defs.Phong_Shader.light_source(vec4(-40, 30, -80, 1), color(0.7, 0.75, 0.9, 1), 220),
+      defs.Phong_Shader.light_source(vec4(25, 40, 10, 1), color(1, 1, 1, 1), 2200),
+      defs.Phong_Shader.light_source(vec4(-40, 30, -80, 1), color(0.7, 0.75, 0.9, 1), 900),
     ];
 
     let dt = this.uniforms.animation_delta_time / 1000;
