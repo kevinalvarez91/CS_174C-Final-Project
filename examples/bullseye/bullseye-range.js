@@ -547,7 +547,7 @@ export class Bullseye_Range extends Component {
       mountain_snowy: { shader: phong, color: color(0.40, 0.45, 0.52, 1), ambient: 0.26, diffusivity: 0.86 },
       
       snow_cap:       { shader: phong, color: color(1, 1, 1, .95), ambient: 0.95, diffusivity: 0.4 },
-      sun:          {   shader: new defs.Textured_Phong(), color: color(0, 0, 0, 1), ambient: 1, diffusivity: 0.0, specularity: 0, texture: new Texture("assets/textures/sun.jpg") },
+      sun:          {   shader: new defs.Textured_Phong(), color: color(0, 0, 0, 1), ambient: 1, diffusivity: 0.0, specularity: 0, texture: new Texture("assets/sun.jpg") },
       cloud:        { shader: phong, color: color(1.00, 1.00, 1.00, 0.95), ambient: 0.85, diffusivity: 0.05 },
       cloud_dark:     { shader: phong, color: color(0.45, 0.48, 0.52, 0.95), ambient: 0.65, diffusivity: 0.18 },
       cloud_storm:    { shader: phong, color: color(0.28, 0.30, 0.34, 0.98), ambient: 0.45, diffusivity: 0.25 },
