@@ -560,6 +560,13 @@ export class Bullseye_Range extends Component {
       cuff:         { shader: phong, color: color(0.18, 0.22, 0.32, 1), ambient: 0.35, diffusivity: 0.9 },
       glove:        { shader: phong, color: color(0.12, 0.10, 0.08, 1), ambient: 0.38, diffusivity: 0.88 },
       string:       { shader: phong, color: color(0.94, 0.94, 0.96, 1), ambient: 0.9, diffusivity: 0.1 },
+
+      // cow materials
+      cow_white:    { shader: phong, color: color(0.92, 0.90, 0.88, 1), ambient: 0.40, diffusivity: 0.85 },
+      cow_black:    { shader: phong, color: color(0.08, 0.07, 0.07, 1), ambient: 0.30, diffusivity: 0.80 },
+      cow_pink:     { shader: phong, color: color(0.88, 0.60, 0.60, 1), ambient: 0.50, diffusivity: 0.75 },
+      cow_hoof:     { shader: phong, color: color(0.18, 0.14, 0.10, 1), ambient: 0.28, diffusivity: 0.80 },
+      cow_horn:     { shader: phong, color: color(0.78, 0.70, 0.48, 1), ambient: 0.38, diffusivity: 0.78 },
     };
 
     this.reset_game();
@@ -630,6 +637,15 @@ export class Bullseye_Range extends Component {
       .flash-active {
         animation: bullseye-flash 0.5s ease-out;
       }
+      @keyframes penalty-flash {
+        0%   { transform: translateX(-50%) scale(1);    background-color: rgba(5,15,5,0.85);   box-shadow: 0 0 15px rgba(0,255,0,0.5); border-color: #0f0; }
+        20%  { transform: translateX(-50%) scale(1.18); background-color: rgba(90,0,0,0.97);   box-shadow: 0 0 60px rgba(255,0,0,1);   border-color: #f00; color: #f00; text-shadow: 0 0 18px #f00; }
+        60%  { transform: translateX(-50%) scale(1.12); background-color: rgba(70,0,0,0.95);   box-shadow: 0 0 40px rgba(255,0,0,0.8); border-color: #f00; }
+        100% { transform: translateX(-50%) scale(1);    background-color: rgba(5,15,5,0.85);   box-shadow: 0 0 15px rgba(0,255,0,0.5); border-color: #0f0; color: #0f0; text-shadow: 0 0 8px #0f0; }
+      }
+      .penalty-flash-active {
+        animation: penalty-flash 0.9s ease-out;
+      }
     `;
     document.head.appendChild(style);
 
@@ -670,6 +686,20 @@ export class Bullseye_Range extends Component {
       new Target(vec3(-5, 4, -40), 2.5, 0.2, 4, 1.5, 1.2, 2.4),
       new Target(vec3( 6, 6, -60), 3.0, 0.2, 8, 3.0, 0.8, 0.4),
     ];
+
+    // Bounding spheres for each cow (center x, y, z, radius).
+    // Each cow is roughly 1.6 units long so a radius of 1.8 is generous.
+    this.cow_bounds = [
+      { x: -10, y: 1.1, z: -28 },
+      { x: -13, y: 1.1, z: -18 },
+      { x: -11, y: 1.1, z: -50 },
+      { x: -14, y: 1.1, z: -72 },
+      { x:  10, y: 1.1, z: -22 },
+      { x:  12, y: 1.1, z: -45 },
+      { x:  13, y: 1.1, z: -68 },
+      { x: -16, y: 1.1, z: -35 },
+      { x:  15, y: 1.1, z: -33 },
+    ].map(c => ({ ...c, r: 1.8 }));
   }
 
   /* ---------- Helpers ---------- */
@@ -730,9 +760,16 @@ export class Bullseye_Range extends Component {
 
   trigger_scoreboard_flash() {
     if (!this.scoreboard_el) return;
-    this.scoreboard_el.classList.remove('flash-active');
+    this.scoreboard_el.classList.remove('flash-active', 'penalty-flash-active');
     void this.scoreboard_el.offsetWidth;
     this.scoreboard_el.classList.add('flash-active');
+  }
+
+  trigger_penalty_flash() {
+    if (!this.scoreboard_el) return;
+    this.scoreboard_el.classList.remove('flash-active', 'penalty-flash-active');
+    void this.scoreboard_el.offsetWidth;
+    this.scoreboard_el.classList.add('penalty-flash-active');
   }
 
   get_basis_from_dir(dir) {
@@ -996,6 +1033,121 @@ export class Bullseye_Range extends Component {
     }
 }
 
+  draw_cow(caller, cx, cy, cz, yaw = 0) {
+    // A Holstein dairy cow (black and white) grazing in the field.
+    // yaw rotates the whole cow around its vertical axis (radians).
+    // All proportions and colours match a real cow.
+
+    const S = this.shapes;
+    const M = this.uniforms;
+    const white  = this.materials.cow_white;
+    const black  = this.materials.cow_black;
+    const pink   = this.materials.cow_pink;
+    const hoof   = this.materials.cow_hoof;
+    const horn   = this.materials.cow_horn;
+
+    // All cow parts are defined in local space (cow faces +z),
+    // then rotated by yaw around the cow's origin.
+    const cowT = (lx, ly, lz, preRot = Mat4.identity()) => {
+      return Mat4.translation(cx, 0, cz)
+        .times(Mat4.rotation(yaw, 0, 1, 0))
+        .times(Mat4.translation(lx, ly, lz))
+        .times(preRot);
+    };
+
+    // ── Body ────────────────────────────────────────────────────────────────
+    S.sphere.draw(caller, M,
+      cowT(0, cy + 1.55, 0).times(Mat4.scale(0.72, 0.62, 1.45)), white);
+
+    // Black patch left-flank (Holstein marking)
+    S.sphere.draw(caller, M,
+      cowT(-0.55, cy + 1.65, 0.15).times(Mat4.scale(0.28, 0.38, 0.62)), black);
+
+    // Black patch back-rump
+    S.sphere.draw(caller, M,
+      cowT(0.18, cy + 1.82, -0.85).times(Mat4.scale(0.42, 0.32, 0.38)), black);
+
+    // ── Neck & head (grazing pose – head angled down) ───────────────────────
+    S.sphere.draw(caller, M,
+      cowT(0, cy + 1.62, 1.28, Mat4.rotation(Math.PI * 0.28, 1, 0, 0))
+        .times(Mat4.scale(0.28, 0.28, 0.42)), white);
+
+    // Black neck patch
+    S.sphere.draw(caller, M,
+      cowT(-0.10, cy + 1.56, 1.35, Mat4.rotation(Math.PI * 0.28, 1, 0, 0))
+        .times(Mat4.scale(0.18, 0.18, 0.25)), black);
+
+    // Head
+    S.sphere.draw(caller, M,
+      cowT(0, cy + 1.26, 1.68, Mat4.rotation(Math.PI * 0.18, 1, 0, 0))
+        .times(Mat4.scale(0.24, 0.22, 0.38)), white);
+
+    // Snout
+    S.sphere.draw(caller, M,
+      cowT(0, cy + 0.98, 1.94).times(Mat4.scale(0.155, 0.12, 0.14)), pink);
+
+    // Nostrils
+    S.sphere.draw(caller, M,
+      cowT(-0.07, cy + 0.95, 2.07).times(Mat4.scale(0.028, 0.022, 0.025)), black);
+    S.sphere.draw(caller, M,
+      cowT( 0.07, cy + 0.95, 2.07).times(Mat4.scale(0.028, 0.022, 0.025)), black);
+
+    // Eyes
+    S.sphere.draw(caller, M,
+      cowT(-0.20, cy + 1.32, 1.90).times(Mat4.scale(0.042, 0.038, 0.030)), black);
+    S.sphere.draw(caller, M,
+      cowT( 0.20, cy + 1.32, 1.90).times(Mat4.scale(0.042, 0.038, 0.030)), black);
+
+    // Ears
+    S.sphere.draw(caller, M,
+      cowT(-0.26, cy + 1.46, 1.72).times(Mat4.scale(0.12, 0.07, 0.06)), white);
+    S.sphere.draw(caller, M,
+      cowT( 0.26, cy + 1.46, 1.72).times(Mat4.scale(0.12, 0.07, 0.06)), white);
+
+    // Horns
+    S.post.draw(caller, M,
+      cowT(-0.18, cy + 1.56, 1.60,
+        Mat4.rotation(-Math.PI * 0.35, 0, 0, 1).times(Mat4.rotation(-Math.PI * 0.1, 1, 0, 0)))
+        .times(Mat4.scale(0.035, 0.035, 0.16)), horn);
+    S.post.draw(caller, M,
+      cowT( 0.18, cy + 1.56, 1.60,
+        Mat4.rotation( Math.PI * 0.35, 0, 0, 1).times(Mat4.rotation(-Math.PI * 0.1, 1, 0, 0)))
+        .times(Mat4.scale(0.035, 0.035, 0.16)), horn);
+
+    // ── Legs ────────────────────────────────────────────────────────────────
+    const draw_leg = (lx, lz, black_upper) => {
+      const mat_upper = black_upper ? black : white;
+      S.sphere.draw(caller, M,
+        cowT(lx, cy + 0.82, lz).times(Mat4.scale(0.14, 0.48, 0.14)), mat_upper);
+      S.sphere.draw(caller, M,
+        cowT(lx, cy + 0.26, lz).times(Mat4.scale(0.11, 0.30, 0.11)), white);
+      S.sphere.draw(caller, M,
+        cowT(lx, cy + 0.05, lz).times(Mat4.scale(0.13, 0.07, 0.14)), hoof);
+    };
+
+    draw_leg(-0.38,  0.82, true);
+    draw_leg( 0.38,  0.82, false);
+    draw_leg(-0.36, -0.85, false);
+    draw_leg( 0.36, -0.85, true);
+
+    // ── Udder ───────────────────────────────────────────────────────────────
+    S.sphere.draw(caller, M,
+      cowT(0, cy + 0.78, -0.42).times(Mat4.scale(0.30, 0.18, 0.24)), pink);
+
+    for (const [tx, tz] of [[-0.12, -0.08], [0.12, -0.08], [-0.10, 0.10], [0.10, 0.10]]) {
+      S.sphere.draw(caller, M,
+        cowT(tx, cy + 0.58, -0.42 + tz).times(Mat4.scale(0.038, 0.065, 0.038)), pink);
+    }
+
+    // ── Tail ────────────────────────────────────────────────────────────────
+    S.post.draw(caller, M,
+      cowT(0, cy + 1.62, -1.40, Mat4.rotation(Math.PI * 0.15, 1, 0, 0))
+        .times(Mat4.scale(0.048, 0.048, 0.38)), white);
+
+    S.sphere.draw(caller, M,
+      cowT(0, cy + 1.38, -1.76).times(Mat4.scale(0.10, 0.10, 0.10)), black);
+  }
+
   draw_scenery(caller) {
     let sky_material = this.materials.sky;
 
@@ -1115,6 +1267,24 @@ export class Bullseye_Range extends Component {
 
     for (const t of tree_layout) {
       this.draw_tree(caller, vec3(t.x, 0, t.z), t.h, t.s);
+    }
+
+    // Herd of Holstein cows scattered across the field.
+    // Kept well outside the shooting lane (|x| > 7) and away from target z positions.
+    // Each cow has a distinct yaw so they face different directions.
+    const cow_herd = [
+      { x: -10,  z: -28,  yaw: 0.0              },
+      { x: -13,  z: -18,  yaw: 2.4              },
+      { x: -11,  z: -50,  yaw: 1.1              },
+      { x: -14,  z: -72,  yaw: Math.PI          },
+      { x:  10,  z: -22,  yaw: -0.7             },
+      { x:  12,  z: -45,  yaw: Math.PI * 0.6    },
+      { x:  13,  z: -68,  yaw: -2.1             },
+      { x: -16,  z: -35,  yaw: 0.5              },
+      { x:  15,  z: -33,  yaw: Math.PI * 1.4    },
+    ];
+    for (const c of cow_herd) {
+      this.draw_cow(caller, c.x, 0, c.z, c.yaw);
     }
   }
 
@@ -1381,7 +1551,29 @@ export class Bullseye_Range extends Component {
       }
     }
   }
-update_stuck_arrows() {
+resolve_arrow_cow_collisions() {
+    for (const a of this.arrows) {
+      if (!a.alive || a.stuck) continue;
+
+      for (const cow of this.cow_bounds) {
+        const dx = a.pos[0] - cow.x;
+        const dy = a.pos[1] - cow.y;
+        const dz = a.pos[2] - cow.z;
+        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+        if (dist <= cow.r) {
+          // Hit a cow — lose all points and streak
+          this.score = 0;
+          this.streak = 0;
+          a.alive = false;
+          this.trigger_penalty_flash();
+          break;
+        }
+      }
+    }
+  }
+
+  update_stuck_arrows() {
   for (const a of this.arrows) {
     if (!a.stuck) continue;
     if (a.stuck_target_index === null) continue;
@@ -1395,6 +1587,7 @@ update_stuck_arrows() {
     this.update_targets(dt);
     this.update_arrows(dt);
     this.resolve_arrow_target_collisions();
+    this.resolve_arrow_cow_collisions();
     this.update_stuck_arrows();
   }
 
