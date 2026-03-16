@@ -13,7 +13,7 @@ const GAME_CONFIG = {
   maxShots: 20,
   gravity: -15.0,
   baseArrowSpeed: 60,
-  aimSensitivity: 0.04,
+  aimSensitivity: 0.01,
   maxDrawStrength: 1.0,
   drawChargeRate: 1.2,
   playerHeight: 2.0,
@@ -90,8 +90,8 @@ const ARM_CONFIG = {
   handRadius: 0.075,
 
   // push shoulders much farther off screen
-  leftShoulderOffset: vec3(-1.05, -0.78, 0.30),
-  rightShoulderOffset: vec3( 1.12, -0.82, 0.38),
+  leftShoulderOffset: vec3(-1.05, -0.78, 1.5),
+  rightShoulderOffset: vec3( 1.12, -0.82, 1.6),
 
   // keep bow centered in view
   bowGripOffset: vec3(.25, -.1, 0.0),
@@ -357,7 +357,6 @@ class Bow_Arm_Rig {
     const rightBendHint =
       axes.right.times( 1.45).plus(axes.up.times(-0.95)).plus(dir.times(0.10));
 
-    this.draw_arm(caller, uniforms, leftShoulder, bowGrip, leftBendHint);
     this.draw_arm(caller, uniforms, rightShoulder, nockPos, rightBendHint);
   }
 }
@@ -638,6 +637,11 @@ export class Bullseye_Range extends Component {
       sleeve: this.materials.sleeve,
       glove: this.materials.glove
     });
+
+    // Held-key tracking for smooth aiming
+    this.held_keys = {};
+    document.addEventListener('keydown', e => this.held_keys[e.key] = true);
+    document.addEventListener('keyup',   e => this.held_keys[e.key] = false);
   }
 
   reset_game() {
@@ -1072,14 +1076,14 @@ export class Bullseye_Range extends Component {
     }
 
     // lane side fences
-    for (const x of [-8, 8]) {
+    for (const x of [-16, 16]) {
       for (let z = -16; z >= -82; z -= 10) {
         const post_t = Mat4.translation(x, 1.2, z).times(Mat4.scale(0.12, 1.2, 0.12));
         this.shapes.post.draw(caller, this.uniforms, post_t, this.materials.wood);
       }
 
-      const rail1 = Mat4.translation(x, 1.8, -50).times(Mat4.scale(0.06, 0.06, 33));
-      const rail2 = Mat4.translation(x, 0.95, -50).times(Mat4.scale(0.05, 0.05, 33));
+      const rail1 = Mat4.translation(x, 1.8, 0).times(Mat4.scale(0.06, 0.06, 300));
+      const rail2 = Mat4.translation(x, 0.95, 0).times(Mat4.scale(0.05, 0.05, 300));
       this.shapes.post.draw(caller, this.uniforms, rail1, this.materials.wood);
       this.shapes.post.draw(caller, this.uniforms, rail2, this.materials.wood);
     }
@@ -1250,7 +1254,13 @@ export class Bullseye_Range extends Component {
     const setup = this.get_bow_setup();
     const { dir, axes, bowGrip, nockPos, leftShoulder, rightShoulder, bowTop, bowBottom } = setup;
 
-    this.arm_rig.draw(caller, this.uniforms, bowGrip, nockPos, dir, axes);
+    // Bend hints keep elbows pointing naturally outward relative to the current aim direction
+    const leftBendHint =
+      axes.right.times(-1.45).plus(axes.up.times(-0.95)).plus(dir.times(0.20));
+    const rightBendHint =
+      axes.right.times( 1.45).plus(axes.up.times(-0.95)).plus(dir.times(0.10));
+
+    this.draw_arm_ik(caller, rightShoulder, nockPos, rightBendHint, dir, axes.right, axes.up, true);
 
     // Bow body
     const bow_transform = Mat4.translation(...bowGrip)
@@ -1464,17 +1474,24 @@ draw_arrows(caller) {
   /* ---------- UI Controls ---------- */
 
   render_controls() {
+    // Before (jittery — fires on OS key-repeat):
     // fixed: left now actually goes left, right now actually goes right
     this.key_triggered_button('Aim Left', ['ArrowLeft'], () => this.aim_yaw += this.aim_sensitivity);
     this.key_triggered_button('Aim Right', ['ArrowRight'], () => this.aim_yaw -= this.aim_sensitivity);
     this.new_line();
-
+ 
     this.key_triggered_button('Aim Up', ['ArrowUp'], () => {
       this.aim_pitch = Math.min(this.aim_pitch + this.aim_sensitivity, 0.45);
     });
     this.key_triggered_button('Aim Down', ['ArrowDown'], () => {
       this.aim_pitch = Math.max(this.aim_pitch - this.aim_sensitivity, -0.45);
     });
+
+    // After (keep them for the visible UI buttons, but disable the key callback):
+    this.key_triggered_button('Aim Left',  [], () => this.aim_yaw += this.aim_sensitivity);
+    this.key_triggered_button('Aim Right', [], () => this.aim_yaw -= this.aim_sensitivity);
+    this.key_triggered_button('Aim Up',    [], () => { this.aim_pitch = Math.min(this.aim_pitch + this.aim_sensitivity, 0.45); });
+    this.key_triggered_button('Aim Down',  [], () => { this.aim_pitch = Math.max(this.aim_pitch - this.aim_sensitivity, -0.45); });
     this.new_line();
 
     this.key_triggered_button(
@@ -1545,6 +1562,12 @@ draw_arrows(caller) {
     }
     }
 
+    // Smooth per-frame aim input
+  if (this.held_keys?.['ArrowLeft'])  this.aim_yaw  += this.aim_sensitivity;
+  if (this.held_keys?.['ArrowRight']) this.aim_yaw  -= this.aim_sensitivity;
+  if (this.held_keys?.['ArrowUp'])    this.aim_pitch = Math.min(this.aim_pitch + this.aim_sensitivity, 0.45);
+  if (this.held_keys?.['ArrowDown'])  this.aim_pitch = Math.max(this.aim_pitch - this.aim_sensitivity, -0.45);
+ 
 
     this.draw_scenery(caller);
     this.draw_targets(caller);
