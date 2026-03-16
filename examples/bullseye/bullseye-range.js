@@ -507,6 +507,7 @@ class Arrow {
 ========================= */
 export class Bullseye_Range extends Component {
   init() {
+    console.log("init"); 
     this.widget_options = { make_controls: true };
 
     this.shapes = {
@@ -654,10 +655,15 @@ export class Bullseye_Range extends Component {
       glove: this.materials.glove
     });
 
-    // Held-key tracking for smooth aiming
     this.held_keys = {};
-    document.addEventListener('keydown', e => this.held_keys[e.key] = true);
-    document.addEventListener('keyup',   e => this.held_keys[e.key] = false);
+    document.addEventListener('keydown', e => {
+      // Prevent the browser from scrolling the page with arrow keys or space,
+      if ([' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+      }
+      this.held_keys[e.key] = true;
+    });
+    document.addEventListener('keyup', e => this.held_keys[e.key] = false);
   }
 
   reset_game() {
