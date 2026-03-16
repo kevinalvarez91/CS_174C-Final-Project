@@ -87,7 +87,7 @@ const ARM_CONFIG = {
 
   upperArmRadius: 0.11,
   foreArmRadius: 0.10,
-  handRadius: 0.075,
+  handRadius: 0.05,
 
   // push shoulders much farther off screen
   leftShoulderOffset: vec3(-1.05, -0.78, 1.5),
